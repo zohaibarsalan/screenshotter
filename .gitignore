@@ -13,6 +13,9 @@ profiles/
 screenshots/
 *.zip
 
+# Local capture config
+capture.config.json
+
 # Environment/config secrets
 .env
 .env.*

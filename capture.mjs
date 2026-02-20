@@ -91,6 +91,131 @@ function toIntBounds(box) {
   };
 }
 
+function splitCsv(raw) {
+  return String(raw || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function normalizeRoute(route) {
+  if (!route) return route;
+  return route.startsWith("/") ? route : `/${route}`;
+}
+
+function uniq(values) {
+  return [...new Set(values)];
+}
+
+function printHelp() {
+  console.log(`
+Usage:
+  node capture.mjs [options]
+
+Common:
+  --baseUrl <url>            Base app URL (default: http://127.0.0.1:3000)
+  --state <file>             Playwright storage state file (default: ./state.json)
+  --config <file>            JSON config for reusable named targets
+  --route <path>             Single route, e.g. /clients-overview
+  --routes <a,b,c>           Multiple routes (default: /dashboard)
+  --page <slug>              Route alias without slash, e.g. clients-overview
+  --presets <a,b>            Viewports: iphone-15,macbook-14
+  --waitMs <ms>              Delay before capture (default: 800)
+  --out <dir>                Output root (default: ./screenshots)
+  --headful                  Run browser headed
+  --zip                      Create zip from output folder
+
+Capture modes:
+  --fullPage                 Full-page screenshot mode
+  --selector <expr>          Custom selector capture mode
+  --selectorFile <file>      Read custom selector from file
+  --selectorAll              Capture all selector matches
+  --selectorIndex <n>        Capture one match by index (default: 0)
+  --selectorName <name>      Friendly output name for custom selector
+  --padding <px>             Symmetric crop padding (default: 8)
+
+Named targets (portable across projects):
+  --target <name>            Capture one named target from --config
+  --targets <a,b,c>          Capture multiple named targets from --config
+
+Config format:
+  {
+    "routes": ["/clients-overview"],
+    "targets": {
+      "kpi-cards": {
+        "selector": ".my-card",
+        "selectorAll": true,
+        "outputBase": "kpi-card"
+      },
+      "filter-bar": "xpath=//div[@data-part='filter-bar']"
+    }
+  }
+
+Examples:
+  node capture.mjs --page clients-overview --state ./state.local.json --selectorFile ./selectors/kpi.txt --selectorAll
+  node capture.mjs --config ./capture.config.json --target kpi-cards --state ./state.local.json
+  node capture.mjs --routes /dashboard,/billings --state ./state.local.json --fullPage
+`);
+}
+
+function readJsonFile(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (err) {
+    throw new Error(`Failed to parse JSON config at ${filePath}: ${err?.message || String(err)}`);
+  }
+}
+
+function resolveNamedTargets(rawTargetNames, configTargets) {
+  const targetNames = uniq(splitCsv(rawTargetNames));
+  if (!targetNames.length) return [];
+
+  if (!configTargets || typeof configTargets !== "object") {
+    throw new Error(
+      "Named targets require --config with a top-level \"targets\" object.",
+    );
+  }
+
+  const missing = targetNames.filter((name) => !(name in configTargets));
+  if (missing.length) {
+    throw new Error(
+      `Unknown target(s) in config: ${missing.join(", ")}. Available: ${Object.keys(configTargets).join(", ")}`,
+    );
+  }
+
+  return targetNames.map((name) => {
+    const def = configTargets[name];
+    const normalized =
+      typeof def === "string"
+        ? { selector: def }
+        : def && typeof def === "object"
+          ? def
+          : null;
+
+    if (!normalized?.selector || typeof normalized.selector !== "string") {
+      throw new Error(
+        `Target "${name}" must be a selector string or object with "selector".`,
+      );
+    }
+
+    return {
+      name,
+      selector: normalized.selector.trim(),
+      selectorAll: Boolean(normalized.selectorAll),
+      selectorIndex:
+        normalized.selectorIndex === undefined
+          ? 0
+          : Number(normalized.selectorIndex),
+      padding:
+        normalized.padding === undefined ? undefined : Number(normalized.padding),
+      outputBase:
+        normalized.outputBase && String(normalized.outputBase).trim()
+          ? safeName(String(normalized.outputBase))
+          : safeName(name),
+    };
+  });
+}
+
 async function centerInViewport(locator) {
   await locator.evaluate((el) => {
     const limit = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -149,46 +274,114 @@ function buildCenteredClip(box, viewport, requestedPadding) {
 
 async function main() {
   const args = parseArgs(process.argv);
+  if (args.help) {
+    printHelp();
+    return;
+  }
 
-  const baseUrl = normalizeHttpUrl(args.baseUrl ?? "http://127.0.0.1:3000");
-  const routes = (args.routes ? String(args.routes) : "/dashboard")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const configPath = args.config ? path.resolve(String(args.config)) : "";
+  const config = configPath ? readJsonFile(configPath) : {};
+  const configTargets =
+    config.targets && typeof config.targets === "object" ? config.targets : null;
 
-  const presets = (
-    args.presets ? String(args.presets) : "iphone-15,macbook-14"
-  )
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const baseUrl = normalizeHttpUrl(
+    args.baseUrl ?? config.baseUrl ?? "http://127.0.0.1:3000",
+  );
+  const routeInput = args.routes
+    ? splitCsv(args.routes)
+    : args.route
+      ? splitCsv(args.route)
+      : args.page
+        ? splitCsv(args.page).map(normalizeRoute)
+        : Array.isArray(config.routes)
+          ? config.routes.map((r) => normalizeRoute(String(r)))
+          : ["/dashboard"];
+  const routes = uniq(routeInput.map(normalizeRoute).filter(Boolean));
 
-  const statePath = String(args.state ?? "./state.json");
+  const presets = args.presets
+    ? splitCsv(args.presets)
+    : Array.isArray(config.presets)
+      ? config.presets.map((p) => String(p))
+      : ["iphone-15", "macbook-14"];
 
-  const outRoot = String(args.out ?? "./screenshots");
+  const statePath = String(args.state ?? config.state ?? "./state.json");
+
+  const outRoot = String(args.out ?? config.out ?? "./screenshots");
   const doZip = Boolean(args.zip);
-  const fullPage = Boolean(args.fullPage);
+  const fullPage = Boolean(args.fullPage ?? config.fullPage);
   const headless = args.headful ? false : true;
-  const waitMs = args.waitMs ? Number(args.waitMs) : 800;
-  const selector = args.selector ? String(args.selector).trim() : "";
+  const waitMs =
+    args.waitMs !== undefined
+      ? Number(args.waitMs)
+      : config.waitMs !== undefined
+        ? Number(config.waitMs)
+        : 800;
+
+  if (args.selector && args.selectorFile) {
+    throw new Error("Use only one of --selector or --selectorFile.");
+  }
+  const selectorFile = args.selectorFile
+    ? path.resolve(String(args.selectorFile))
+    : "";
+  const selectorFromFile = selectorFile
+    ? fs.readFileSync(selectorFile, "utf8").trim()
+    : "";
+  const selector = args.selector
+    ? String(args.selector).trim()
+    : selectorFromFile;
   const selectorAll = Boolean(args.selectorAll);
   const selectorIndex =
     args.selectorIndex === undefined ? 0 : Number(args.selectorIndex);
   const selectorPadding =
     args.padding === undefined ? 8 : Number(args.padding);
+  const selectorName = safeName(String(args.selectorName ?? "target")) || "target";
+  const namedTargets = resolveNamedTargets(
+    args.targets ?? args.target ?? "",
+    configTargets,
+  );
   const captureThemes = ["light", "dark"];
+
+  const captureJobs = [...namedTargets];
+  if (selector) {
+    captureJobs.push({
+      name: selectorName,
+      selector,
+      selectorAll,
+      selectorIndex,
+      padding: selectorPadding,
+      outputBase: selectorName,
+    });
+  }
 
   if (!Number.isFinite(waitMs) || waitMs < 0 || waitMs > 60000) {
     throw new Error("--waitMs must be between 0 and 60000");
   }
-  if (selector && fullPage) {
-    throw new Error("--selector cannot be combined with --fullPage.");
+  if (captureJobs.length && fullPage) {
+    throw new Error("--fullPage cannot be combined with selector/target capture.");
   }
   if (!Number.isInteger(selectorIndex) || selectorIndex < 0) {
     throw new Error("--selectorIndex must be a non-negative integer.");
   }
   if (!Number.isFinite(selectorPadding) || selectorPadding < 0) {
     throw new Error("--padding must be a non-negative number.");
+  }
+  for (const target of captureJobs) {
+    if (!target.selector || typeof target.selector !== "string") {
+      throw new Error(`Invalid target "${target.name}": missing selector.`);
+    }
+    if (!Number.isInteger(target.selectorIndex) || target.selectorIndex < 0) {
+      throw new Error(
+        `Invalid target "${target.name}": selectorIndex must be a non-negative integer.`,
+      );
+    }
+    if (
+      target.padding !== undefined &&
+      (!Number.isFinite(target.padding) || target.padding < 0)
+    ) {
+      throw new Error(
+        `Invalid target "${target.name}": padding must be a non-negative number.`,
+      );
+    }
   }
   if (args.dark) {
     console.warn(
@@ -256,60 +449,72 @@ async function main() {
 
         const fileStem = `${safeName(`${presetKey}-${pathname}`)}-${theme}`;
 
-        if (!selector) {
+        if (!captureJobs.length) {
           const file = path.join(outDir, `${fileStem}.png`);
           await page.screenshot({ path: file, fullPage, type: "png" });
         } else {
           const viewport = page.viewportSize();
           if (!viewport) throw new Error("Could not resolve viewport size.");
 
-          const locator = page.locator(selector);
-          const totalMatches = await locator.count();
-          if (totalMatches === 0) {
-            throw new Error(`No elements matched --selector "${selector}"`);
-          }
-
-          const targetIndices = selectorAll
-            ? [...Array(totalMatches).keys()]
-            : [selectorIndex];
-          if (!selectorAll && selectorIndex >= totalMatches) {
-            throw new Error(
-              `--selectorIndex ${selectorIndex} out of range. Found ${totalMatches} matching elements.`,
-            );
-          }
-
-          const selectorLabel = safeName(selector).slice(0, 32) || "target";
-          for (const targetIndex of targetIndices) {
-            const target = locator.nth(targetIndex);
-            await target.waitFor({ state: "visible", timeout: 60000 });
-            await centerInViewport(target);
-            await page.waitForTimeout(50);
-
-            const box = await target.boundingBox();
-            if (!box || box.width <= 0 || box.height <= 0) {
+          for (const job of captureJobs) {
+            const locator = page.locator(job.selector);
+            const totalMatches = await locator.count();
+            if (totalMatches === 0) {
               throw new Error(
-                `Could not resolve visible bounds for selector "${selector}" at index ${targetIndex}.`,
+                `No elements matched target "${job.name}" (selector: ${job.selector})`,
               );
             }
 
-            const { clip, padding } = buildCenteredClip(
-              box,
-              viewport,
-              selectorPadding,
-            );
-            if (padding < selectorPadding) {
-              console.warn(
-                `[warn] Reduced padding for ${presetKey} ${pathname} selector index ${targetIndex} from ${selectorPadding}px to ${padding}px to keep equal margins in frame.`,
+            const effectiveIndex = job.selectorIndex ?? 0;
+            const effectiveAll = Boolean(job.selectorAll);
+            const targetIndices = effectiveAll
+              ? [...Array(totalMatches).keys()]
+              : [effectiveIndex];
+
+            if (!effectiveAll && effectiveIndex >= totalMatches) {
+              throw new Error(
+                `Target "${job.name}" selectorIndex ${effectiveIndex} out of range. Found ${totalMatches} matches.`,
               );
             }
 
-            const indexSuffix =
-              selectorAll || targetIndex !== 0 ? `-${targetIndex + 1}` : "";
-            const file = path.join(
-              outDir,
-              `${fileStem}-${selectorLabel}${indexSuffix}.png`,
-            );
-            await page.screenshot({ path: file, clip, type: "png" });
+            const requestedPadding =
+              job.padding === undefined ? selectorPadding : job.padding;
+
+            for (const targetIndex of targetIndices) {
+              const target = locator.nth(targetIndex);
+              await target.waitFor({ state: "visible", timeout: 60000 });
+              await centerInViewport(target);
+              await page.waitForTimeout(50);
+
+              const box = await target.boundingBox();
+              if (!box || box.width <= 0 || box.height <= 0) {
+                throw new Error(
+                  `Could not resolve visible bounds for target "${job.name}" at index ${targetIndex}.`,
+                );
+              }
+
+              const { clip, padding } = buildCenteredClip(
+                box,
+                viewport,
+                requestedPadding,
+              );
+              if (padding < requestedPadding) {
+                console.warn(
+                  `[warn] Reduced padding for ${presetKey} ${pathname} target "${job.name}" index ${targetIndex} from ${requestedPadding}px to ${padding}px to keep equal margins in frame.`,
+                );
+              }
+
+              const indexSuffix = effectiveAll
+                ? `-${targetIndex + 1}`
+                : effectiveIndex > 0
+                  ? `-${effectiveIndex + 1}`
+                  : "";
+              const file = path.join(
+                outDir,
+                `${fileStem}-${job.outputBase}${indexSuffix}.png`,
+              );
+              await page.screenshot({ path: file, clip, type: "png" });
+            }
           }
         }
 

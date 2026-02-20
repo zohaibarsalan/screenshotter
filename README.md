@@ -58,13 +58,31 @@ node capture.mjs \
   --waitMs 2200
 ```
 
+### Named targets via config (recommended for team use)
+
+Create a project-local config (start from `capture.config.example.json`) with named selectors.
+
+```bash
+node capture.mjs \
+  --config ./capture.config.json \
+  --targets kpi-cards,filter-bar,table-no-footer
+```
+
+This removes hardcoded selectors from shell commands and makes captures portable per app.
+
 ## Key Flags
 
 - `--baseUrl`: Base app URL
+- `--config`: JSON file for reusable named targets
+- `--target` / `--targets`: Run named target(s) from config
 - `--routes`: Comma-separated routes (default: `/dashboard`)
+- `--route`: Single route
+- `--page`: Route alias without leading slash (e.g. `clients-overview`)
 - `--state`: Playwright storage state file
 - `--presets`: `iphone-15,macbook-14`
 - `--selector`: CSS/Playwright/XPath selector for element capture
+- `--selectorFile`: Read selector from text file (avoids shell escaping)
+- `--selectorName`: Friendly output name for custom selector
 - `--selectorAll`: Capture all selector matches
 - `--selectorIndex`: Capture one specific match (default: `0`)
 - `--padding`: Symmetric crop padding for selector mode (default: `8`)
@@ -85,8 +103,7 @@ Each run creates a job folder under `screenshots/<job-id>/` with files named lik
 ## Security Notes
 
 - Do not commit `state*.json` files.
-- Do not commit `bearer*.json` files.
-- Rotate sessions/tokens if they are ever exposed.
+- Do not commit any local auth/session files.
 
 ## Scripts
 
