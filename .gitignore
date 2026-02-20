@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Local auth/session artifacts
+state*.json
+bearer*.json
+
+# Browser/user profiles
+.pw-profile/
+profiles/
+
+# Generated outputs
+screenshots/
+*.zip
+
+# Environment/config secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
+screenshots

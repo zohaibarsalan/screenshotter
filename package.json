@@ -1,0 +1,23 @@
+{
+  "name": "screenshotter",
+  "version": "1.0.0",
+  "description": "Playwright-based dashboard screenshot automation with light/dark and element capture support.",
+  "main": "capture.mjs",
+  "scripts": {
+    "login": "node login.mjs",
+    "capture": "node capture.mjs"
+  },
+  "keywords": [
+    "playwright",
+    "screenshots",
+    "automation",
+    "dashboard"
+  ],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.14.0",
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "playwright": "^1.58.1"
+  }
+}
