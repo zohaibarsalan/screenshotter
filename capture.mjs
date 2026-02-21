@@ -132,6 +132,7 @@ Capture modes:
   --selectorAll              Capture all selector matches
   --selectorIndex <n>        Capture one match by index (default: 0)
   --selectorName <name>      Friendly output name for custom selector
+  --shrinkWrap               Temporarily shrink selected element(s) to content width before capture
   --padding <px>             Symmetric crop padding (default: 8)
 
 Named targets (portable across projects):
@@ -208,12 +209,38 @@ function resolveNamedTargets(rawTargetNames, configTargets) {
           : Number(normalized.selectorIndex),
       padding:
         normalized.padding === undefined ? undefined : Number(normalized.padding),
+      shrinkWrap: Boolean(normalized.shrinkWrap),
       outputBase:
         normalized.outputBase && String(normalized.outputBase).trim()
           ? safeName(String(normalized.outputBase))
           : safeName(name),
     };
   });
+}
+
+async function applyShrinkWrap(locator) {
+  return locator.evaluate((el) => {
+    const previous = {
+      width: el.style.width,
+      maxWidth: el.style.maxWidth,
+      minWidth: el.style.minWidth,
+    };
+    el.style.width = "max-content";
+    el.style.maxWidth = "max-content";
+    el.style.minWidth = "0";
+    return previous;
+  });
+}
+
+async function restoreShrinkWrap(locator, previous) {
+  await locator.evaluate(
+    (el, prev) => {
+      el.style.width = prev.width;
+      el.style.maxWidth = prev.maxWidth;
+      el.style.minWidth = prev.minWidth;
+    },
+    previous,
+  );
 }
 
 async function centerInViewport(locator) {
@@ -334,6 +361,7 @@ async function main() {
     args.selectorIndex === undefined ? 0 : Number(args.selectorIndex);
   const selectorPadding =
     args.padding === undefined ? 8 : Number(args.padding);
+  const shrinkWrap = Boolean(args.shrinkWrap);
   const selectorName = safeName(String(args.selectorName ?? "target")) || "target";
   const namedTargets = resolveNamedTargets(
     args.targets ?? args.target ?? "",
@@ -349,6 +377,7 @@ async function main() {
       selectorAll,
       selectorIndex,
       padding: selectorPadding,
+      shrinkWrap,
       outputBase: selectorName,
     });
   }
@@ -479,41 +508,53 @@ async function main() {
 
             const requestedPadding =
               job.padding === undefined ? selectorPadding : job.padding;
+            const effectiveShrinkWrap = Boolean(job.shrinkWrap);
 
             for (const targetIndex of targetIndices) {
               const target = locator.nth(targetIndex);
               await target.waitFor({ state: "visible", timeout: 60000 });
-              await centerInViewport(target);
-              await page.waitForTimeout(50);
-
-              const box = await target.boundingBox();
-              if (!box || box.width <= 0 || box.height <= 0) {
-                throw new Error(
-                  `Could not resolve visible bounds for target "${job.name}" at index ${targetIndex}.`,
-                );
+              let previousStyles = null;
+              if (effectiveShrinkWrap) {
+                previousStyles = await applyShrinkWrap(target);
               }
 
-              const { clip, padding } = buildCenteredClip(
-                box,
-                viewport,
-                requestedPadding,
-              );
-              if (padding < requestedPadding) {
-                console.warn(
-                  `[warn] Reduced padding for ${presetKey} ${pathname} target "${job.name}" index ${targetIndex} from ${requestedPadding}px to ${padding}px to keep equal margins in frame.`,
-                );
-              }
+              try {
+                await centerInViewport(target);
+                await page.waitForTimeout(50);
 
-              const indexSuffix = effectiveAll
-                ? `-${targetIndex + 1}`
-                : effectiveIndex > 0
-                  ? `-${effectiveIndex + 1}`
-                  : "";
-              const file = path.join(
-                outDir,
-                `${fileStem}-${job.outputBase}${indexSuffix}.png`,
-              );
-              await page.screenshot({ path: file, clip, type: "png" });
+                const box = await target.boundingBox();
+                if (!box || box.width <= 0 || box.height <= 0) {
+                  throw new Error(
+                    `Could not resolve visible bounds for target "${job.name}" at index ${targetIndex}.`,
+                  );
+                }
+
+                const { clip, padding } = buildCenteredClip(
+                  box,
+                  viewport,
+                  requestedPadding,
+                );
+                if (padding < requestedPadding) {
+                  console.warn(
+                    `[warn] Reduced padding for ${presetKey} ${pathname} target "${job.name}" index ${targetIndex} from ${requestedPadding}px to ${padding}px to keep equal margins in frame.`,
+                  );
+                }
+
+                const indexSuffix = effectiveAll
+                  ? `-${targetIndex + 1}`
+                  : effectiveIndex > 0
+                    ? `-${effectiveIndex + 1}`
+                    : "";
+                const file = path.join(
+                  outDir,
+                  `${fileStem}-${job.outputBase}${indexSuffix}.png`,
+                );
+                await page.screenshot({ path: file, clip, type: "png" });
+              } finally {
+                if (previousStyles) {
+                  await restoreShrinkWrap(target, previousStyles);
+                }
+              }
             }
           }
         }
