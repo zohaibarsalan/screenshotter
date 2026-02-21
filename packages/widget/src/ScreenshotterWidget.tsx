@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import html2canvas from "html2canvas-pro";
 import { toCanvas } from "html-to-image";
 import {
@@ -38,6 +45,501 @@ const OKLCH_LIKE_TOKEN_PATTERN = /\bokl(?:ab|ch)\([^)]*\)/gi;
 const CSS_NUMBER_PATTERN = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
 const OKL_TOKEN_CACHE = new Map<string, string>();
 let oklColorResolverElement: HTMLSpanElement | null = null;
+const THEME_STORAGE_KEYS = [
+  "vite-ui-theme",
+  "theme",
+  "next-theme",
+  "next-themes-theme",
+] as const;
+const CAPTURE_MODE_OPTIONS: readonly CaptureMode[] = [
+  "element",
+  "viewport",
+  "fullpage",
+];
+const FORMAT_OPTIONS: readonly CaptureFormat[] = ["png", "jpeg"];
+const THEME_OPTIONS: readonly ThemeSelection[] = ["current", "both"];
+const STATUS_HIDE_DELAY_MS = 2600;
+
+const WIDGET_PANEL_CSS = `
+.ssw-root,
+.ssw-root * {
+  box-sizing: border-box;
+}
+.ssw-root {
+  --ui-bg: 0 0% 99%;
+  --ui-panel: 0 0% 100%;
+  --ui-panel-2: 0 0% 97%;
+  --ui-border: 0 0% 86%;
+  --ui-border-strong: 0 0% 80%;
+  --ui-fg: 0 0% 10%;
+  --ui-muted: 0 0% 38%;
+  --ui-accent: 196 100% 42%;
+  --ui-accent-hover: 196 100% 38%;
+  --ui-accent-pressed: 196 100% 35%;
+  --ui-accent-fg: 0 0% 100%;
+  --ui-ring: 196 100% 42%;
+  --ui-radius: 12px;
+  --ui-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  --ssw-font-ui: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+  --ssw-font-mono: "IBM Plex Mono", "JetBrains Mono", monospace;
+  color: hsl(var(--ui-fg));
+  font-family: var(--ssw-font-ui);
+}
+.ssw-root[data-ui-theme="dark"] {
+  --ui-bg: 0 0% 3.5%;
+  --ui-panel: 0 0% 6.5%;
+  --ui-panel-2: 0 0% 9%;
+  --ui-border: 0 0% 14%;
+  --ui-border-strong: 0 0% 18%;
+  --ui-fg: 0 0% 96%;
+  --ui-muted: 0 0% 72%;
+  --ui-accent: 196 100% 50%;
+  --ui-accent-hover: 196 100% 54%;
+  --ui-accent-pressed: 196 100% 46%;
+  --ui-accent-fg: 0 0% 6%;
+  --ui-ring: 196 100% 55%;
+  --ui-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.ui-focus {
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+.ui-focus:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(var(--ui-ring)), 0 0 0 4px hsl(var(--ui-panel));
+}
+
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+  border-radius: var(--ui-radius);
+  padding: 0 16px;
+  font-family: var(--ssw-font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 150ms ease-out, background-color 150ms ease-out,
+    border-color 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out,
+    filter 150ms ease-out;
+}
+.ui-btn:active {
+  transform: translateY(1px);
+}
+.ui-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.ui-btn-primary {
+  border: 1px solid hsl(var(--ui-border-strong));
+  background: hsl(var(--ui-accent));
+  color: hsl(var(--ui-accent-fg));
+  box-shadow: 0 6px 14px rgba(2, 6, 23, 0.2);
+}
+.ui-btn-primary:hover:not(:disabled) {
+  background: hsl(var(--ui-accent-hover));
+}
+.ui-btn-primary:active:not(:disabled) {
+  background: hsl(var(--ui-accent-pressed));
+}
+
+.ui-btn-outline {
+  border: 1px solid hsl(var(--ui-border));
+  background: hsl(var(--ui-panel-2) / 0.35);
+  color: hsl(var(--ui-fg));
+}
+.ui-btn-outline:hover:not(:disabled) {
+  background: hsl(var(--ui-panel-2) / 0.5);
+  border-color: hsl(var(--ui-border) / 0.82);
+}
+
+.ui-btn-ghost {
+  border: 1px solid transparent;
+  background: transparent;
+  color: hsl(var(--ui-fg));
+}
+.ui-btn-ghost:hover:not(:disabled) {
+  background: hsl(var(--ui-panel-2) / 0.4);
+}
+
+.ui-btn-lg {
+  height: 40px;
+  padding: 0 18px;
+  font-size: 14px;
+}
+
+.ui-panel {
+  border: 1px solid hsl(var(--ui-border));
+  background: linear-gradient(
+    180deg,
+    hsl(var(--ui-panel) / 0.95) 0%,
+    hsl(var(--ui-bg) / 0.93) 100%
+  );
+  box-shadow: var(--ui-shadow);
+  border-radius: 18px;
+  backdrop-filter: blur(8px);
+}
+
+.ui-divider {
+  border-top: 1px solid hsl(var(--ui-border) / 0.7);
+}
+
+.ui-seg-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.ssw-output-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ui-toggle-group {
+  border: 1px solid hsl(var(--ui-border));
+  border-radius: 16px;
+  padding: 4px;
+  background: hsl(var(--ui-panel-2) / 0.2);
+}
+.ui-seg-item {
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid hsl(var(--ui-border) / 0.72);
+  background: hsl(var(--ui-panel-2) / 0.22);
+  color: hsl(var(--ui-muted));
+}
+.ui-seg-item[data-active="true"] {
+  border-color: hsl(var(--ui-accent));
+  background: hsl(var(--ui-panel-2) / 0.62);
+  color: hsl(var(--ui-fg));
+  box-shadow:
+    0 0 0 1px hsl(var(--ui-accent) / 0.58),
+    inset 0 0 0 1px hsl(var(--ui-accent) / 0.24),
+    inset 0 1px 0 hsl(0 0% 100% / 0.05);
+}
+.ui-seg-item[data-active="true"]:hover:not(:disabled) {
+  background: hsl(var(--ui-panel-2) / 0.7);
+}
+.ui-seg-item:disabled {
+  color: hsl(var(--ui-muted) / 0.5);
+  border-color: hsl(var(--ui-border) / 0.3);
+  background: hsl(var(--ui-panel-2) / 0.1);
+  cursor: not-allowed;
+}
+
+.ui-range {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 36px;
+}
+.ui-range input[type="range"] {
+  --pct: 0%;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    hsl(var(--ui-accent)) 0%,
+    hsl(var(--ui-accent)) var(--pct),
+    hsl(var(--ui-border)) var(--pct),
+    hsl(var(--ui-border)) 100%
+  );
+  outline: none;
+  transition: background-color 150ms ease-out;
+}
+.ui-range input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    hsl(var(--ui-accent)) 0%,
+    hsl(var(--ui-accent)) var(--pct),
+    hsl(var(--ui-border)) var(--pct),
+    hsl(var(--ui-border)) 100%
+  );
+}
+.ui-range input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -7px;
+  border-radius: 999px;
+  background: hsl(var(--ui-accent));
+  border: 2px solid hsl(var(--ui-panel));
+  box-shadow: 0 0 0 4px hsl(var(--ui-ring) / 0);
+  transition: transform 150ms ease-out, box-shadow 150ms ease-out, filter 150ms ease-out;
+}
+.ui-range input[type="range"]:hover::-webkit-slider-thumb {
+  filter: brightness(1.08);
+}
+.ui-range input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(0.98);
+}
+.ui-range input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px hsl(var(--ui-ring) / 0.35);
+}
+.ui-range input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: hsl(var(--ui-accent));
+  border: 2px solid hsl(var(--ui-panel));
+  box-shadow: 0 0 0 4px hsl(var(--ui-ring) / 0);
+  transition: transform 150ms ease-out, box-shadow 150ms ease-out, filter 150ms ease-out;
+}
+.ui-range input[type="range"]:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 4px hsl(var(--ui-ring) / 0.35);
+}
+.ui-range input[type="range"]::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: hsl(var(--ui-accent));
+}
+.ui-range input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: hsl(var(--ui-border));
+}
+
+.ssw-launcher {
+  width: 68px;
+  height: 32px;
+  border-radius: 999px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ssw-panel {
+  position: absolute;
+  right: 0;
+  bottom: 46px;
+  width: 328px;
+  max-width: calc(100vw - 24px);
+  transform: translateY(8px);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 140ms ease-out, opacity 140ms ease-out;
+}
+.ssw-panel[data-open="true"] {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ssw-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 12px 10px;
+  border-bottom: 1px solid hsl(var(--ui-border));
+}
+.ssw-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+.ssw-subtitle {
+  margin: 2px 0 0;
+  font-size: 10px;
+  line-height: 1.3;
+  color: hsl(var(--ui-muted));
+}
+.ssw-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ssw-hotkey {
+  padding: 2px 7px;
+  border: 1px solid hsl(var(--ui-border));
+  border-radius: 999px;
+  font-family: var(--ssw-font-mono);
+  font-size: 10px;
+  color: hsl(var(--ui-muted));
+}
+.ssw-icon-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ssw-body {
+  padding: 12px;
+}
+.ssw-group {
+  margin-bottom: 12px;
+}
+.ssw-group-title {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: hsl(var(--ui-muted));
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ssw-advanced-card {
+  margin-bottom: 10px;
+  border: 1px solid hsl(var(--ui-border));
+  border-radius: 14px;
+  background: hsl(var(--ui-panel-2) / 0.2);
+  overflow: hidden;
+}
+.ssw-advanced-toggle {
+  width: 100%;
+  height: 36px;
+  justify-content: space-between;
+  padding: 0 12px;
+}
+.ssw-advanced-card[data-open="true"] .ssw-advanced-toggle {
+  border-bottom: 1px solid hsl(var(--ui-border) / 0.7);
+}
+.ssw-advanced-toggle:hover {
+  background: hsl(var(--ui-panel-2) / 0.22);
+}
+.ssw-chevron {
+  display: inline-block;
+  transition: transform 150ms ease-out;
+}
+.ssw-chevron.is-open {
+  transform: rotate(180deg);
+}
+.ssw-advanced-body {
+  padding: 9px;
+}
+
+.ssw-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(118px, 132px);
+  gap: 10px;
+  align-items: center;
+  padding: 7px 0;
+}
+.ssw-setting + .ssw-setting {
+  border-top: 1px solid hsl(var(--ui-border) / 0.7);
+}
+.ssw-setting-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.2;
+}
+.ssw-setting-help {
+  margin: 2px 0 0;
+  font-size: 10px;
+  line-height: 1.25;
+  color: hsl(var(--ui-muted));
+}
+.ssw-setting-value {
+  display: block;
+  margin-bottom: 4px;
+  text-align: right;
+  font-family: var(--ssw-font-mono);
+  font-size: 10px;
+}
+.ssw-mini-segment {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.ssw-mini-segment .ui-seg-item {
+  height: 34px;
+}
+
+.ssw-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+}
+.ssw-status-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid hsl(var(--ui-border));
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-family: var(--ssw-font-mono);
+  font-size: 10px;
+  color: hsl(var(--ui-muted));
+  background: hsl(var(--ui-panel-2) / 0.22);
+}
+.ssw-status-chip[data-kind="idle"] {
+  border-color: hsl(var(--ui-border) / 0.65);
+  color: hsl(var(--ui-muted));
+}
+.ssw-status-chip[data-kind="success"] {
+  border-color: hsl(142 70% 35% / 0.65);
+  background: hsl(142 70% 20% / 0.25);
+  color: hsl(142 70% 75%);
+}
+.ssw-root[data-ui-theme="light"] .ssw-status-chip[data-kind="success"] {
+  border-color: hsl(145 46% 45%);
+  background: hsl(145 68% 90%);
+  color: hsl(145 76% 18%);
+}
+.ssw-status-chip[data-kind="error"] {
+  border-color: hsl(350 82% 45% / 0.55);
+  background: hsl(350 82% 20% / 0.24);
+  color: hsl(350 95% 83%);
+}
+.ssw-status-chip[data-kind="info"] {
+  border-color: hsl(206 95% 58% / 0.58);
+  background: hsl(206 95% 32% / 0.22);
+  color: hsl(206 95% 84%);
+}
+.ssw-action-btn {
+  width: calc((100% - 8px) / 2);
+  min-width: 0;
+  height: 44px;
+  font-size: 13px;
+}
+.ssw-toast {
+  margin: 6px 2px 0;
+  font-family: var(--ssw-font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  color: hsl(var(--ui-muted));
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: none;
+}
+.ssw-toast[data-kind="success"] {
+  color: hsl(142 70% 76%);
+}
+.ssw-root[data-ui-theme="light"] .ssw-toast[data-kind="success"] {
+  color: hsl(145 72% 22%);
+}
+.ssw-toast[data-kind="error"] {
+  color: hsl(350 95% 83%);
+}
+.ssw-toast[data-kind="info"] {
+  color: hsl(206 95% 84%);
+}
+
+@media (max-width: 520px) {
+  .ssw-panel {
+    width: min(328px, calc(100vw - 18px));
+  }
+  .ssw-subtitle {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .ssw-hotkey {
+    display: none;
+  }
+}
+`;
 
 type StatusState =
   | { kind: "idle"; message: string }
@@ -122,8 +624,66 @@ function inferCurrentTheme(): ThemeValue {
   return "light";
 }
 
+function parseStoredThemeValue(raw: string | null): ThemeValue | null {
+  if (!raw) return null;
+  const normalized = raw.trim().toLowerCase().replace(/^['"]|['"]$/g, "");
+  if (!normalized || normalized === "system") return null;
+  if (normalized === "dark" || normalized.endsWith(":dark") || normalized.endsWith("-dark")) {
+    return "dark";
+  }
+  if (normalized === "light" || normalized.endsWith(":light") || normalized.endsWith("-light")) {
+    return "light";
+  }
+  if (normalized.includes("dark")) return "dark";
+  if (normalized.includes("light")) return "light";
+  return null;
+}
+
+function getStorageTheme(): ThemeValue | null {
+  if (typeof window === "undefined") return null;
+  for (const key of THEME_STORAGE_KEYS) {
+    let raw: string | null = null;
+    try {
+      raw = window.localStorage.getItem(key);
+    } catch {
+      raw = null;
+    }
+    const parsed = parseStoredThemeValue(raw);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function resolveWidgetTheme(): ThemeValue {
+  return getStorageTheme() ?? inferCurrentTheme();
+}
+
 function oppositeTheme(theme: ThemeValue): ThemeValue {
   return theme === "light" ? "dark" : "light";
+}
+
+function modeLabel(mode: CaptureMode): string {
+  if (mode === "element") return "Element";
+  if (mode === "viewport") return "Viewport";
+  return "Full page";
+}
+
+function actionLabel(mode: CaptureMode, isPickingElement: boolean, isSaving: boolean): string {
+  if (mode === "element") {
+    return isPickingElement ? "Picking..." : "Pick element";
+  }
+  if (mode === "viewport") {
+    return isSaving ? "Capturing..." : "Capture viewport";
+  }
+  return isSaving ? "Capturing..." : "Capture full page";
+}
+
+function statusChipLabel(kind: StatusState["kind"]): string {
+  if (kind === "saving") return "Capturing...";
+  if (kind === "success") return "Saved";
+  if (kind === "error") return "Error";
+  if (kind === "info") return "Picking...";
+  return "Ready";
 }
 
 function toSelectorName(element: HTMLElement): string {
@@ -241,14 +801,6 @@ function isWidgetElement(element: HTMLElement | null): boolean {
   return element.closest(`[${UI_MARKER_ATTR}="true"]`) !== null;
 }
 
-function statusColor(kind: StatusState["kind"]): string {
-  if (kind === "error") return "#ff9f8f";
-  if (kind === "success") return "#86efac";
-  if (kind === "saving") return "#c7d2fe";
-  if (kind === "info") return "#93c5fd";
-  return "#9ca3af";
-}
-
 function getDomCaptureTarget(mode: CaptureMode, element: HTMLElement | null): HTMLElement {
   if (mode === "element") {
     if (!element) {
@@ -277,6 +829,17 @@ function isUnsupportedColorFunctionError(error: unknown): boolean {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function normalizeElementPadding(value: number): number {
+  return clamp(Math.round(value), 0, 96);
+}
+
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  if (error instanceof Error && error.name === "AbortError") return true;
+  const message = toFriendlyError(error).toLowerCase();
+  return message.includes("abort");
 }
 
 function parseCssNumber(raw: string): number | null {
@@ -786,11 +1349,12 @@ export function ScreenshotterWidget({
   const isEnabled = enabled ?? defaultEnabled;
 
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [mode, setMode] = useState<CaptureMode>(defaultMode);
   const [format, setFormat] = useState<CaptureFormat>("png");
   const [quality, setQuality] = useState<number>(90);
   const [elementPadding, setElementPadding] = useState<number>(() =>
-    clamp(Math.round(elementPaddingPx), 0, 96),
+    normalizeElementPadding(elementPaddingPx),
   );
   const [themeSelection, setThemeSelection] =
     useState<ThemeSelection>(themeSelectionDefault);
@@ -800,20 +1364,111 @@ export function ScreenshotterWidget({
     kind: "idle",
     message: "Ready",
   });
+  const [isStatusToastVisible, setIsStatusToastVisible] = useState(false);
   const [hideUiForCapture, setHideUiForCapture] = useState(false);
+  const [uiTheme, setUiTheme] = useState<ThemeValue>(() =>
+    typeof window !== "undefined" ? resolveWidgetTheme() : "dark",
+  );
 
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const isMountedRef = useRef(true);
+  const isCaptureInFlightRef = useRef(false);
+  const pendingRequestControllersRef = useRef<Set<AbortController>>(new Set());
 
   const canCaptureBothThemes = Boolean(themeAdapter);
   const scale = useMemo(() => clampQualityToScale(quality), [quality]);
   const safeElementPaddingPx = useMemo(
-    () => clamp(Math.round(elementPadding), 0, 96),
+    () => normalizeElementPadding(elementPadding),
     [elementPadding],
   );
 
+  const runIfMounted = useCallback((work: () => void) => {
+    if (!isMountedRef.current) return;
+    work();
+  }, []);
+
   useEffect(() => {
-    setElementPadding(clamp(Math.round(elementPaddingPx), 0, 96));
+    setElementPadding(normalizeElementPadding(elementPaddingPx));
   }, [elementPaddingPx]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      isCaptureInFlightRef.current = false;
+      for (const controller of pendingRequestControllersRef.current) {
+        controller.abort();
+      }
+      pendingRequestControllersRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isEnabled || typeof window === "undefined") return undefined;
+
+    const syncTheme = () => {
+      setUiTheme(resolveWidgetTheme());
+    };
+
+    syncTheme();
+    window.addEventListener("storage", syncTheme);
+
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => {
+      syncTheme();
+    });
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme", "data-mode"],
+    });
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const legacyMedia = media as MediaQueryList & {
+      addListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+      removeListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+    };
+    const onMediaChange = () => {
+      if (!getStorageTheme()) {
+        syncTheme();
+      }
+    };
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", onMediaChange);
+    } else {
+      legacyMedia.addListener?.(onMediaChange);
+    }
+
+    return () => {
+      window.removeEventListener("storage", syncTheme);
+      observer.disconnect();
+      if (typeof media.removeEventListener === "function") {
+        media.removeEventListener("change", onMediaChange);
+      } else {
+        legacyMedia.removeListener?.(onMediaChange);
+      }
+    };
+  }, [isEnabled]);
+
+  useEffect(() => {
+    if (!canCaptureBothThemes && themeSelection === "both") {
+      setThemeSelection("current");
+    }
+  }, [canCaptureBothThemes, themeSelection]);
+
+  useEffect(() => {
+    if (status.kind === "idle") {
+      setIsStatusToastVisible(false);
+      return undefined;
+    }
+    setIsStatusToastVisible(true);
+    if (status.kind === "success" || status.kind === "info") {
+      const timeout = window.setTimeout(() => {
+        setIsStatusToastVisible(false);
+      }, STATUS_HIDE_DELAY_MS);
+      return () => window.clearTimeout(timeout);
+    }
+    return undefined;
+  }, [status.kind, status.message]);
 
   const getCurrentTheme = useCallback((): ThemeValue => {
     try {
@@ -833,11 +1488,19 @@ export function ScreenshotterWidget({
         headers["x-screenshotter-token"] = token;
       }
 
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
+      const controller = new AbortController();
+      pendingRequestControllersRef.current.add(controller);
+      let response: Response;
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+      } finally {
+        pendingRequestControllersRef.current.delete(controller);
+      }
 
       const body = (await response.json().catch(() => null)) as
         | SaveResult
@@ -859,7 +1522,7 @@ export function ScreenshotterWidget({
   const runSingleCapture = useCallback(
     async (theme: ThemeValue, selectedElement: HTMLElement | null): Promise<SaveResult> => {
       assertBrowser();
-      setHideUiForCapture(true);
+      runIfMounted(() => setHideUiForCapture(true));
       await waitForPaint();
       await waitForVisualAssetsReady();
 
@@ -921,6 +1584,7 @@ export function ScreenshotterWidget({
         }
 
         const now = new Date().toISOString();
+        const elementTarget = mode === "element" ? selectedElement : null;
         const payload: CapturePayload = {
           project,
           route: window.location.pathname || "/",
@@ -929,9 +1593,8 @@ export function ScreenshotterWidget({
           quality,
           scale,
           theme,
-          selector: mode === "element" ? toSelector(selectedElement as HTMLElement) : undefined,
-          selectorName:
-            mode === "element" ? toSelectorName(selectedElement as HTMLElement) : undefined,
+          selector: elementTarget ? toSelector(elementTarget) : undefined,
+          selectorName: elementTarget ? toSelectorName(elementTarget) : undefined,
           viewport: {
             width: window.innerWidth,
             height: window.innerHeight,
@@ -943,34 +1606,41 @@ export function ScreenshotterWidget({
 
         return await postCapture(payload);
       } finally {
-        setHideUiForCapture(false);
+        runIfMounted(() => setHideUiForCapture(false));
       }
     },
-    [format, mode, postCapture, project, quality, safeElementPaddingPx, scale],
+    [format, mode, postCapture, project, quality, runIfMounted, safeElementPaddingPx, scale],
   );
 
   const executeCapture = useCallback(
     async (selectedElement: HTMLElement | null) => {
-      if (isSaving) return;
+      if (isCaptureInFlightRef.current) return;
       if (mode === "element" && !selectedElement) {
-        setStatus({
-          kind: "error",
-          message: "Pick an element first.",
-        });
+        runIfMounted(() =>
+          setStatus({
+            kind: "error",
+            message: "Pick an element first.",
+          }),
+        );
         return;
       }
       if (themeSelection === "both" && !themeAdapter) {
-        setStatus({
-          kind: "error",
-          message: "Theme adapter required for both-theme capture.",
-        });
+        runIfMounted(() =>
+          setStatus({
+            kind: "error",
+            message: "Theme adapter required for both-theme capture.",
+          }),
+        );
         return;
       }
 
-      setIsSaving(true);
-      setStatus({
-        kind: "saving",
-        message: "Capturing...",
+      isCaptureInFlightRef.current = true;
+      runIfMounted(() => {
+        setIsSaving(true);
+        setStatus({
+          kind: "saving",
+          message: "Capturing...",
+        });
       });
 
       let originalTheme: ThemeValue = "light";
@@ -995,19 +1665,24 @@ export function ScreenshotterWidget({
           onSaved?.(result);
         }
         const last = results[results.length - 1];
-        setStatus({
-          kind: "success",
-          message:
-            results.length === 1
-              ? `Saved ${last.relativePath}`
-              : `Saved ${results.length} files. Last: ${last.relativePath}`,
-        });
+        runIfMounted(() =>
+          setStatus({
+            kind: "success",
+            message:
+              results.length === 1
+                ? `Saved ${last.relativePath}`
+                : `Saved ${results.length} files. Last: ${last.relativePath}`,
+          }),
+        );
       } catch (error) {
+        if (isAbortError(error)) return;
         const message = toFriendlyError(error);
-        setStatus({
-          kind: "error",
-          message,
-        });
+        runIfMounted(() =>
+          setStatus({
+            kind: "error",
+            message,
+          }),
+        );
         onError?.(message);
       } finally {
         if (themeAdapter) {
@@ -1017,16 +1692,17 @@ export function ScreenshotterWidget({
             // ignore restoration failures in UI flow
           }
         }
-        setIsSaving(false);
+        isCaptureInFlightRef.current = false;
+        runIfMounted(() => setIsSaving(false));
       }
     },
     [
       captureSettleMs,
       getCurrentTheme,
-      isSaving,
       mode,
       onError,
       onSaved,
+      runIfMounted,
       runSingleCapture,
       themeAdapter,
       themeSelection,
@@ -1183,25 +1859,15 @@ export function ScreenshotterWidget({
     };
   }, [executeCapture, isPickingElement, safeElementPaddingPx]);
 
-  const actionLabel =
-    mode === "element"
-      ? isPickingElement
-        ? "Picking..."
-        : "Pick element"
-      : isSaving
-        ? "Capturing..."
-        : "Capture now";
+  const currentActionLabel = actionLabel(mode, isPickingElement, isSaving);
 
   const actionDisabled =
-    isSaving || (mode === "element" ? isPickingElement : false) || (themeSelection === "both" && !canCaptureBothThemes);
-
-  const statusStyle = {
-    color: statusColor(status.kind),
-    fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
-    fontSize: "12px",
-    lineHeight: "16px",
-    margin: "0",
-  } as const;
+    isSaving ||
+    (mode === "element" ? isPickingElement : false) ||
+    (themeSelection === "both" && !canCaptureBothThemes);
+  const currentStatusChipLabel = statusChipLabel(status.kind);
+  const qualityPct = useMemo(() => ((quality - 1) / 99) * 100, [quality]);
+  const paddingPct = useMemo(() => (safeElementPaddingPx / 32) * 100, [safeElementPaddingPx]);
 
   if (!isEnabled) return null;
 
@@ -1209,6 +1875,8 @@ export function ScreenshotterWidget({
     <div
       ref={rootRef}
       data-screenshotter-ui="true"
+      data-ui-theme={uiTheme}
+      className="ssw-root"
       style={{
         position: "fixed",
         right: "calc(16px + env(safe-area-inset-right, 0px))",
@@ -1219,25 +1887,13 @@ export function ScreenshotterWidget({
         transition: "opacity 120ms ease-out",
       }}
     >
+      <style data-screenshotter-ui="true">{WIDGET_PANEL_CSS}</style>
       <button
         type="button"
         data-testid="screenshotter-launcher"
         aria-label="Toggle screenshot panel"
+        className="ui-btn ui-btn-outline ui-focus ssw-launcher"
         onClick={() => setIsPanelOpen((value) => !value)}
-        style={{
-          width: "76px",
-          height: "36px",
-          borderRadius: "999px",
-          border: "1px solid rgba(148, 163, 184, 0.45)",
-          color: "#f8fafc",
-          background: "linear-gradient(180deg, #111827 0%, #020617 100%)",
-          cursor: "pointer",
-          fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
-          fontSize: "12px",
-          fontWeight: 600,
-          letterSpacing: "0.2px",
-          boxShadow: "0 10px 24px rgba(2, 6, 23, 0.35)",
-        }}
       >
         Shot
       </button>
@@ -1245,246 +1901,196 @@ export function ScreenshotterWidget({
       <section
         data-testid="screenshotter-panel"
         aria-hidden={!isPanelOpen}
-        style={{
-          position: "absolute",
-          right: 0,
-          bottom: "48px",
-          width: "320px",
-          maxWidth: "calc(100vw - 24px)",
-          borderRadius: "16px",
-          padding: "14px",
-          border: "1px solid rgba(100, 116, 139, 0.4)",
-          background:
-            "linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(2, 6, 23, 0.98) 100%)",
-          color: "#f8fafc",
-          backdropFilter: "blur(10px)",
-          boxShadow: "0 20px 40px rgba(2, 6, 23, 0.45)",
-          transform: isPanelOpen ? "translateY(0)" : "translateY(10px)",
-          opacity: isPanelOpen ? 1 : 0,
-          pointerEvents: isPanelOpen ? "auto" : "none",
-          transition: "transform 180ms ease-out, opacity 180ms ease-out",
-        }}
+        className="ui-panel ssw-panel"
+        data-open={isPanelOpen ? "true" : "false"}
       >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "10px",
-          }}
-        >
-          <strong
-            style={{
-              fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
-              fontSize: "13px",
-              color: "#e2e8f0",
-            }}
-          >
-            Screenshotter
-          </strong>
-          <span
-            style={{
-              fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
-              fontSize: "11px",
-              color: "#94a3b8",
-            }}
-          >
-            Cmd/Ctrl + Shift + K
-          </span>
-        </div>
-
-        <div style={{ display: "flex", gap: "6px", marginBottom: "10px" }}>
-          {(["element", "viewport", "fullpage"] as CaptureMode[]).map((value) => (
+        <div className="ssw-header">
+          <div>
+            <h3 className="ssw-title">Screenshotter</h3>
+            <p className="ssw-subtitle">Only what matters</p>
+          </div>
+          <div className="ssw-header-actions">
+            <span className="ssw-hotkey">Cmd/Ctrl + Shift + K</span>
             <button
-              key={value}
               type="button"
-              data-testid={`mode-${value}`}
-              aria-label={`Switch to ${value} mode`}
-              aria-pressed={mode === value}
-              onClick={() => setMode(value)}
-              style={{
-                flex: 1,
-                height: "30px",
-                borderRadius: "8px",
-                border:
-                  mode === value
-                    ? "1px solid rgba(34, 211, 238, 0.9)"
-                    : "1px solid rgba(100, 116, 139, 0.45)",
-                background:
-                  mode === value ? "rgba(6, 182, 212, 0.18)" : "rgba(15, 23, 42, 0.7)",
-                color: mode === value ? "#e0f2fe" : "#cbd5e1",
-                fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
-                fontSize: "11px",
-                cursor: "pointer",
-              }}
+              className="ui-btn ui-btn-ghost ui-focus ssw-icon-btn"
+              aria-label="Close screenshot panel"
+              onClick={() => setIsPanelOpen(false)}
             >
-              {value}
+              ×
             </button>
-          ))}
+          </div>
         </div>
 
-        <div style={{ display: "flex", gap: "6px", marginBottom: "10px" }}>
-          {(["png", "jpeg"] as CaptureFormat[]).map((value) => (
+        <div className="ssw-body">
+          <div className="ssw-group">
+            <p className="ssw-group-title">Capture</p>
+            <div className="ui-toggle-group">
+              <div className="ui-seg-row">
+                {CAPTURE_MODE_OPTIONS.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    data-testid={`mode-${value}`}
+                    aria-label={`Switch to ${modeLabel(value)} mode`}
+                    aria-pressed={mode === value}
+                    data-active={mode === value ? "true" : "false"}
+                    className="ui-btn ui-btn-outline ui-focus ui-seg-item"
+                    onClick={() => setMode(value)}
+                  >
+                    {modeLabel(value)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="ssw-group">
+            <p className="ssw-group-title">Output</p>
+            <div className="ui-toggle-group">
+              <div className="ui-seg-row ssw-output-row">
+                {FORMAT_OPTIONS.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-label={`Use ${value.toUpperCase()} format`}
+                    aria-pressed={format === value}
+                    data-active={format === value ? "true" : "false"}
+                    className="ui-btn ui-btn-outline ui-focus ui-seg-item"
+                    onClick={() => setFormat(value)}
+                  >
+                    {value.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="ssw-advanced-card" data-open={isAdvancedOpen ? "true" : "false"}>
             <button
-              key={value}
               type="button"
-              aria-label={`Use ${value.toUpperCase()} format`}
-              aria-pressed={format === value}
-              onClick={() => setFormat(value)}
-              style={{
-                flex: 1,
-                height: "30px",
-                borderRadius: "8px",
-                border:
-                  format === value
-                    ? "1px solid rgba(56, 189, 248, 0.9)"
-                    : "1px solid rgba(100, 116, 139, 0.45)",
-                background:
-                  format === value ? "rgba(56, 189, 248, 0.2)" : "rgba(15, 23, 42, 0.7)",
-                color: format === value ? "#e0f2fe" : "#cbd5e1",
-                fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
-                fontSize: "11px",
-                cursor: "pointer",
-              }}
+              aria-expanded={isAdvancedOpen}
+              className="ui-btn ui-btn-ghost ui-focus ssw-advanced-toggle"
+              onClick={() => setIsAdvancedOpen((open) => !open)}
             >
-              {value.toUpperCase()}
+              <span>Advanced</span>
+              <span className={`ssw-chevron${isAdvancedOpen ? " is-open" : ""}`}>▾</span>
             </button>
-          ))}
-        </div>
 
-        <label
-          style={{
-            display: "block",
-            marginBottom: "10px",
-            fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
-            fontSize: "11px",
-            color: "#cbd5e1",
-          }}
-        >
-          Quality
-          <span style={{ float: "right", color: "#e2e8f0" }}>
-            {quality} ({scale.toFixed(2)}x)
-          </span>
-          <input
-            aria-label="Capture quality"
-            type="range"
-            min={1}
-            max={100}
-            value={quality}
-            onChange={(event) => setQuality(Number(event.currentTarget.value))}
-            style={{ width: "100%", marginTop: "6px" }}
-          />
-        </label>
+            {isAdvancedOpen ? (
+              <div className="ssw-advanced-body">
+                {format === "jpeg" ? (
+                  <div className="ssw-setting">
+                    <div>
+                      <p className="ssw-setting-label">JPEG quality</p>
+                      <p className="ssw-setting-help">JPEG only</p>
+                    </div>
+                    <div>
+                      <span className="ssw-setting-value">{quality}%</span>
+                      <div className="ui-range">
+                        <input
+                          aria-label="JPEG quality"
+                          type="range"
+                          min={1}
+                          max={100}
+                          value={quality}
+                          style={{ "--pct": `${qualityPct}%` } as CSSProperties}
+                          onChange={(event) => setQuality(Number(event.currentTarget.value))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
 
-        {mode === "element" ? (
-          <label
-            style={{
-              display: "block",
-              marginBottom: "10px",
-              fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
-              fontSize: "11px",
-              color: "#cbd5e1",
-            }}
-          >
-            Element padding
-            <span style={{ float: "right", color: "#e2e8f0" }}>
-              {safeElementPaddingPx}px
+                {mode === "element" ? (
+                  <div className="ssw-setting">
+                    <div>
+                      <p className="ssw-setting-label">Padding</p>
+                      <p className="ssw-setting-help">Element capture</p>
+                    </div>
+                    <div>
+                      <span className="ssw-setting-value">{safeElementPaddingPx}px</span>
+                      <div className="ui-range">
+                        <input
+                          aria-label="Element padding"
+                          data-testid="element-padding"
+                          type="range"
+                          min={0}
+                          max={32}
+                          step={1}
+                          value={safeElementPaddingPx}
+                          style={{ "--pct": `${paddingPct}%` } as CSSProperties}
+                          onChange={(event) => setElementPadding(Number(event.currentTarget.value))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="ssw-setting">
+                  <div>
+                    <p className="ssw-setting-label">Theme</p>
+                    <p className="ssw-setting-help">
+                      {canCaptureBothThemes
+                        ? "Current or both themes"
+                        : "Dual-theme capture unavailable"}
+                    </p>
+                  </div>
+                  <div className="ui-toggle-group">
+                    <div className="ssw-mini-segment">
+                      {THEME_OPTIONS.map((value) => {
+                        const disabled = value === "both" && !canCaptureBothThemes;
+                        const active = themeSelection === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-label={`Set theme capture to ${value}`}
+                            aria-pressed={active}
+                            data-active={active ? "true" : "false"}
+                            className="ui-btn ui-btn-outline ui-focus ui-seg-item"
+                            disabled={disabled}
+                            onClick={() => setThemeSelection(value)}
+                          >
+                            {value}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="ssw-footer">
+            <span className="ssw-status-chip" data-kind={status.kind}>
+              {currentStatusChipLabel}
             </span>
-            <input
-              aria-label="Element padding"
-              data-testid="element-padding"
-              type="range"
-              min={0}
-              max={32}
-              step={1}
-              value={safeElementPaddingPx}
-              onChange={(event) => setElementPadding(Number(event.currentTarget.value))}
-              style={{ width: "100%", marginTop: "6px" }}
-            />
-          </label>
-        ) : null}
-
-        <div style={{ display: "flex", gap: "6px", marginBottom: "10px" }}>
-          {(["current", "both"] as ThemeSelection[]).map((value) => {
-            const disabled = value === "both" && !canCaptureBothThemes;
-            const active = themeSelection === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                aria-label={`Set theme capture to ${value}`}
-                aria-pressed={active}
-                disabled={disabled}
-                onClick={() => setThemeSelection(value)}
-                style={{
-                  flex: 1,
-                  height: "30px",
-                  borderRadius: "8px",
-                  border: active
-                    ? "1px solid rgba(34, 211, 238, 0.9)"
-                    : "1px solid rgba(100, 116, 139, 0.45)",
-                  background: active
-                    ? "rgba(34, 211, 238, 0.15)"
-                    : "rgba(15, 23, 42, 0.7)",
-                  color: active ? "#e0f2fe" : "#cbd5e1",
-                  opacity: disabled ? 0.45 : 1,
-                  cursor: disabled ? "not-allowed" : "pointer",
-                  fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
-                  fontSize: "11px",
-                }}
-              >
-                {value}
-              </button>
-            );
-          })}
+            <button
+              type="button"
+              data-testid="action-button"
+              aria-label={mode === "element" ? "Pick element to capture" : "Capture screenshot"}
+              className="ui-btn ui-btn-primary ui-focus ssw-action-btn"
+              disabled={actionDisabled}
+              onClick={() => {
+                if (mode === "element") {
+                  setMode("element");
+                  setIsPickingElement(true);
+                  return;
+                }
+                void executeCapture(null);
+              }}
+            >
+              {currentActionLabel}
+            </button>
+          </div>
+          {isStatusToastVisible ? (
+            <p className="ssw-toast" data-kind={status.kind}>
+              {status.message}
+            </p>
+          ) : null}
         </div>
-
-        {!canCaptureBothThemes ? (
-          <p
-            style={{
-              margin: "0 0 10px",
-              color: "#93c5fd",
-              fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
-              fontSize: "11px",
-              lineHeight: "15px",
-            }}
-          >
-            Provide `themeAdapter` to enable both-theme capture.
-          </p>
-        ) : null}
-
-        <button
-          type="button"
-          data-testid="action-button"
-          aria-label={mode === "element" ? "Pick element to capture" : "Capture screenshot"}
-          disabled={actionDisabled}
-          onClick={() => {
-            if (mode === "element") {
-              setMode("element");
-              setIsPickingElement(true);
-              return;
-            }
-            void executeCapture(null);
-          }}
-          style={{
-            width: "100%",
-            height: "36px",
-            borderRadius: "10px",
-            border: "1px solid rgba(34, 211, 238, 0.75)",
-            background: actionDisabled
-              ? "rgba(30, 41, 59, 0.6)"
-              : "linear-gradient(180deg, #0891b2 0%, #0e7490 100%)",
-            color: actionDisabled ? "#94a3b8" : "#f0fdfa",
-            cursor: actionDisabled ? "not-allowed" : "pointer",
-            fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
-            fontSize: "12px",
-            fontWeight: 600,
-          }}
-        >
-          {actionLabel}
-        </button>
-
-        <p style={{ ...statusStyle, marginTop: "9px" }}>{status.message}</p>
       </section>
     </div>
   );

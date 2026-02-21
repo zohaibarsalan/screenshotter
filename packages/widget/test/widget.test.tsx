@@ -47,6 +47,22 @@ function assignRect(element: HTMLElement): void {
   });
 }
 
+function mockPendingFetch(): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal) {
+          signal.addEventListener("abort", () => {
+            reject(new DOMException("Request aborted", "AbortError"));
+          });
+        }
+      });
+    }),
+  );
+}
+
 beforeEach(() => {
   html2canvasMock.mockReset();
   htmlToImageCanvasMock.mockReset();
@@ -188,6 +204,7 @@ describe("ScreenshotterWidget", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: /Advanced/i }));
     fireEvent.click(screen.getByLabelText("Set theme capture to both"));
     fireEvent.click(screen.getByTestId("action-button"));
 
@@ -197,5 +214,92 @@ describe("ScreenshotterWidget", () => {
     expect(setTheme).toHaveBeenCalledWith("light");
     expect(setTheme).toHaveBeenCalledWith("dark");
     expect(theme).toBe("light");
+  });
+
+  it("keeps the panel hotkey inactive while typing in inputs", () => {
+    render(
+      <div>
+        <input data-testid="editor" />
+        <ScreenshotterWidget enabled captureSettleMs={0} />
+      </div>,
+    );
+
+    const panel = screen.getByTestId("screenshotter-panel");
+    expect(panel).toHaveAttribute("aria-hidden", "true");
+
+    const input = screen.getByTestId("editor");
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, {
+      key: "k",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+
+    expect(panel).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("shows context-aware advanced controls based on mode and format", () => {
+    render(<ScreenshotterWidget enabled captureSettleMs={0} />);
+    fireEvent.click(screen.getByTestId("screenshotter-launcher"));
+    fireEvent.click(screen.getByRole("button", { name: /Advanced/i }));
+
+    expect(screen.queryByText("JPEG quality")).toBeNull();
+    expect(screen.getByText("Padding")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use JPEG format" }));
+    expect(screen.getByText("JPEG quality")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("mode-viewport"));
+    expect(screen.queryByText("Padding")).toBeNull();
+    expect(screen.getByText("JPEG quality")).toBeInTheDocument();
+  });
+
+  it("cancels element picker overlay on escape", async () => {
+    render(
+      <div>
+        <div data-testid="target">Target</div>
+        <ScreenshotterWidget enabled captureSettleMs={0} />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByTestId("screenshotter-launcher"));
+    fireEvent.click(screen.getByTestId("action-button"));
+
+    expect(
+      document.querySelector("[data-testid='screenshotter-picker-overlay']"),
+    ).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(
+        document.querySelector("[data-testid='screenshotter-picker-overlay']"),
+      ).toBeNull();
+    });
+  });
+
+  it("aborts inflight save requests on unmount and prevents duplicate captures", async () => {
+    mockPendingFetch();
+
+    const { unmount } = render(<ScreenshotterWidget enabled captureSettleMs={0} />);
+    fireEvent.click(screen.getByTestId("screenshotter-launcher"));
+    fireEvent.click(screen.getByTestId("mode-viewport"));
+
+    fireEvent.click(screen.getByTestId("action-button"));
+    fireEvent.click(screen.getByTestId("action-button"));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    const call = vi.mocked(fetch).mock.calls[0];
+    const options = call?.[1] as RequestInit | undefined;
+    const signal = options?.signal as AbortSignal | undefined;
+    expect(signal).toBeTruthy();
+    expect(signal?.aborted).toBe(false);
+
+    unmount();
+
+    expect(signal?.aborted).toBe(true);
   });
 });
