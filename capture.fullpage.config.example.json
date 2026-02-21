@@ -1,0 +1,8 @@
+{
+  "baseUrl": "http://127.0.0.1:3000",
+  "state": "./state.local.json",
+  "routes": ["/dashboard"],
+  "presets": ["macbook-14"],
+  "waitMs": 1200,
+  "fullPage": true
+}

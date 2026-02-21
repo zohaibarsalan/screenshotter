@@ -44,6 +44,13 @@ node capture.mjs \
   --presets macbook-14
 ```
 
+### Full page via config example
+
+```bash
+cp capture.fullpage.config.example.json capture.fullpage.config.json
+node capture.mjs --config ./capture.fullpage.config.json
+```
+
 ### Element capture (centered with equal margins)
 
 ```bash
@@ -63,12 +70,18 @@ node capture.mjs \
 Create a project-local config (start from `capture.config.example.json`) with named selectors.
 
 ```bash
+cp capture.config.example.json capture.config.json
 node capture.mjs \
   --config ./capture.config.json \
   --targets kpi-cards,filter-bar,table-no-footer
 ```
 
 This removes hardcoded selectors from shell commands and makes captures portable per app.
+
+### What each example file is for
+
+- `capture.fullpage.config.example.json`: full-page screenshots
+- `capture.config.example.json`: separated element/target screenshots
 
 ## Key Flags
 
