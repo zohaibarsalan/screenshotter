@@ -1,23 +1,136 @@
 # Screenshotter
 
-Playwright-based screenshot automation for dashboard UIs.
+Screenshotter now supports two workflows:
 
-It supports:
-- Full-page screenshots
-- Element-targeted screenshots with centered framing and equal margins
-- Automatic light + dark captures in a single run
-- Multiple routes and viewport presets
+- In-app React widget (React-scan style launcher + panel + click-to-capture)
+- Existing Playwright CLI automation (unchanged and still supported)
+
+## Features
+
+- Floating in-app launcher with slide-up capture panel
+- Capture modes: `element` (default), `viewport`, `fullpage`
+- Output controls: `PNG/JPEG`, quality slider (`1..100`), scale mapping (`1x..2x`)
+- Optional dual-theme capture (`current` or `both` with a theme adapter)
+- Local save server writes directly into project `screenshots/live-YYYYMMDD/...`
+- Existing CLI supports light/dark + route + viewport + selector automation
 
 ## Requirements
 
 - Node.js 18+
 - pnpm
+- React/Next app for widget integration
 
 ## Install
 
 ```bash
 pnpm install
 ```
+
+## In-App Widget (React/Next)
+
+### 1) Start local save server
+
+```bash
+cp capture.widget.config.example.json capture.widget.config.json
+pnpm run widget:server
+```
+
+Server defaults:
+
+- Host: `127.0.0.1`
+- Port: `4783`
+- Output root: `./screenshots`
+- Endpoint: `http://127.0.0.1:4783/api/captures`
+
+### 2) Add widget to your app
+
+```tsx
+"use client";
+
+import { ScreenshotterWidget } from "@screenshotter/widget";
+
+export function DevScreenshotWidget() {
+  return (
+    <ScreenshotterWidget
+      endpoint="http://127.0.0.1:4783/api/captures"
+      project="matter-health"
+      themeAdapter={{
+        getCurrentTheme: () =>
+          document.documentElement.classList.contains("dark") ? "dark" : "light",
+        setTheme: (theme) => {
+          document.documentElement.classList.toggle("dark", theme === "dark");
+        },
+      }}
+    />
+  );
+}
+```
+
+`enabled` defaults to `NODE_ENV === "development"`.
+
+### Widget behavior
+
+- Floating launcher is always visible in dev (`Shot` button, bottom-right)
+- Keyboard shortcut: `Cmd/Ctrl + Shift + K`
+- `element` mode: click `Pick element`, hover highlight appears, click target and capture saves immediately
+- `element` mode includes in-panel `Element padding` control (default `8px`)
+- `viewport` / `fullpage`: click `Capture now` from panel
+- Theme `both` requires `themeAdapter`; otherwise only `current` is available
+
+### Widget API
+
+```ts
+export interface ScreenshotterWidgetProps {
+  endpoint?: string; // default http://127.0.0.1:4783/api/captures
+  token?: string;
+  enabled?: boolean; // default NODE_ENV === "development"
+  project?: string; // default "app"
+  elementPaddingPx?: number; // default 8 (element mode crop padding)
+  defaultMode?: "element" | "viewport" | "fullpage"; // default "element"
+  themeSelectionDefault?: "current" | "both"; // default "current"
+  themeAdapter?: {
+    getCurrentTheme: () => "light" | "dark";
+    setTheme: (theme: "light" | "dark") => void | Promise<void>;
+  };
+  onSaved?: (result: SaveResult) => void;
+  onError?: (message: string) => void;
+}
+```
+
+### Known widget limitations
+
+- Uses `html2canvas-pro`; some cross-origin, video, and complex canvas content may render imperfectly
+- Full-page capture depends on DOM renderability and may differ from Playwright pixel output
+- Widget captures current browser auth/session state and does not manage Playwright storage state files
+
+## Local Save Server
+
+- Health endpoint: `GET /api/health`
+- Capture endpoint: `POST /api/captures`
+- Optional auth header: `x-screenshotter-token`
+- Optional origin allowlist via `allowOrigins` in config
+
+Capture file structure:
+
+- Folder: `screenshots/live-YYYYMMDD/<routeSlug>/`
+- Filename: `<routeSlug>-<mode>-<selectorOrSurface>-<theme>-<YYYYMMDD-HHmmss>.<ext>`
+
+Example config:
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": 4783,
+  "outputRoot": "./screenshots",
+  "token": "",
+  "maxPayloadMB": 30,
+  "allowOrigins": ["http://127.0.0.1:3000", "http://localhost:3000"]
+}
+```
+
+## Playwright CLI (Unchanged)
+
+The existing CLI flow is still supported and unchanged.
 
 ## Better Auth Login Flow
 
@@ -34,7 +147,7 @@ This opens a browser window, waits until URL matches `--afterPath`, then saves s
 
 ## Capture Screenshots
 
-### Full page (light + dark automatically)
+### Full page (light + dark automatically, CLI)
 
 ```bash
 node capture.mjs \
@@ -44,14 +157,14 @@ node capture.mjs \
   --presets macbook-14
 ```
 
-### Full page via config example
+### Full page via config example (CLI)
 
 ```bash
 cp capture.fullpage.config.example.json capture.fullpage.config.json
 node capture.mjs --config ./capture.fullpage.config.json
 ```
 
-### Element capture (centered with equal margins)
+### Element capture (centered with equal margins, CLI)
 
 ```bash
 node capture.mjs \
@@ -65,7 +178,7 @@ node capture.mjs \
   --waitMs 2200
 ```
 
-### Named targets via config (recommended for team use)
+### Named targets via config (CLI, recommended for team use)
 
 Create a project-local config (start from `capture.config.example.json`) with named selectors.
 
@@ -123,4 +236,7 @@ Each run creates a job folder under `screenshots/<job-id>/` with files named lik
 ```bash
 pnpm run login
 pnpm run capture
+pnpm run widget:server
+pnpm run build
+pnpm run test
 ```

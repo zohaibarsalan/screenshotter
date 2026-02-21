@@ -1,0 +1,32 @@
+{
+  "name": "@screenshotter/widget",
+  "version": "0.1.6",
+  "description": "React widget for in-app screenshot capture and local save.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prebuild": "pnpm --filter @screenshotter/protocol run build",
+    "build": "tsc -p tsconfig.build.json",
+    "pretest": "pnpm --filter @screenshotter/protocol run build",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@screenshotter/protocol": "workspace:*",
+    "html-to-image": "^1.11.13",
+    "html2canvas-pro": "^1.5.13"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "@screenshotter/server",
+  "version": "0.1.0",
+  "description": "Local screenshot save server for in-browser captures.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prestart": "pnpm --filter @screenshotter/protocol run build",
+    "start": "tsx src/cli.ts",
+    "prebuild": "pnpm --filter @screenshotter/protocol run build",
+    "build": "tsc -p tsconfig.build.json",
+    "pretest": "pnpm --filter @screenshotter/protocol run build",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@screenshotter/protocol": "workspace:*"
+  }
+}

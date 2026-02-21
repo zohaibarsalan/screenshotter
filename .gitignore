@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+dist/
 
 # Local auth/session artifacts
 state*.json
@@ -15,6 +16,7 @@ screenshots/
 
 # Local capture config
 capture.config.json
+capture.widget.config.json
 
 # Environment/config secrets
 .env
