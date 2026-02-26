@@ -1,23 +1,22 @@
 {
   "name": "screenshotter",
   "version": "1.0.0",
-  "description": "Playwright-based dashboard screenshot automation with light/dark and element capture support.",
-  "main": "capture.mjs",
+  "private": true,
+  "description": "Monorepo for Screenshotter protocol, widget, and local save server packages.",
   "scripts": {
-    "login": "node login.mjs",
-    "capture": "node capture.mjs",
-    "widget:server": "pnpm --filter @screenshotter/server run start",
-    "build": "pnpm -r --filter @screenshotter/* run build",
-    "test": "pnpm -r --filter @screenshotter/* run test"
+    "build": "pnpm -r --filter \"@screenshotter/*\" run build",
+    "test": "pnpm -r --filter \"@screenshotter/*\" run test",
+    "release:check": "pnpm run build && pnpm run test && pnpm -r --filter \"@screenshotter/*\" pack --pack-destination /tmp",
+    "release:publish": "pnpm -r --filter \"@screenshotter/*\" publish --access public"
   },
   "workspaces": [
     "packages/*"
   ],
   "keywords": [
-    "playwright",
-    "screenshots",
-    "automation",
-    "dashboard"
+    "screenshot",
+    "react",
+    "capture",
+    "widget"
   ],
   "author": "",
   "license": "ISC",
@@ -33,9 +32,5 @@
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
-  },
-  "dependencies": {
-    "archiver": "^7.0.1",
-    "playwright": "^1.58.1"
   }
 }

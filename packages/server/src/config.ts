@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import path from "node:path";
 
 export interface ScreenshotterServerConfig {
   host: string;
@@ -19,23 +18,6 @@ export const DEFAULT_SERVER_CONFIG: ScreenshotterServerConfig = {
   allowOrigins: ["http://127.0.0.1:3000", "http://localhost:3000"],
 };
 
-function parseArgs(argv: string[]): Record<string, string | boolean> {
-  const args: Record<string, string | boolean> = {};
-  for (let i = 2; i < argv.length; i += 1) {
-    const current = argv[i];
-    if (!current?.startsWith("--")) continue;
-    const key = current.slice(2);
-    const maybeValue = argv[i + 1];
-    if (!maybeValue || maybeValue.startsWith("--")) {
-      args[key] = true;
-      continue;
-    }
-    args[key] = maybeValue;
-    i += 1;
-  }
-  return args;
-}
-
 function isLoopbackHost(host: string): boolean {
   return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
@@ -50,22 +32,6 @@ function normalizeOrigins(value: unknown): string[] {
 function resolveOrigins(value: unknown): string[] {
   const parsed = normalizeOrigins(value);
   return parsed.length ? parsed : [...DEFAULT_SERVER_CONFIG.allowOrigins];
-}
-
-export function resolveConfigPath(args: Record<string, string | boolean>): string | null {
-  const fromArg = args.config;
-  if (typeof fromArg === "string" && fromArg.trim()) {
-    return path.resolve(fromArg.trim());
-  }
-  let dir = process.cwd();
-  while (true) {
-    const candidate = path.resolve(dir, "capture.widget.config.json");
-    if (fs.existsSync(candidate)) return candidate;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
 }
 
 export function loadServerConfigFromFile(filePath: string): ScreenshotterServerConfig {
@@ -108,13 +74,4 @@ export function loadServerConfigFromFile(filePath: string): ScreenshotterServerC
     maxPayloadMB,
     allowOrigins: resolveOrigins((source as Record<string, unknown>).allowOrigins),
   };
-}
-
-export function loadServerConfigFromArgv(argv: string[]): ScreenshotterServerConfig {
-  const args = parseArgs(argv);
-  const configPath = resolveConfigPath(args);
-  if (!configPath) {
-    return { ...DEFAULT_SERVER_CONFIG };
-  }
-  return loadServerConfigFromFile(configPath);
 }

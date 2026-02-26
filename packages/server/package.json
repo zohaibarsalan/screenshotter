@@ -2,6 +2,23 @@
   "name": "@screenshotter/server",
   "version": "0.1.0",
   "description": "Local screenshot save server for in-browser captures.",
+  "keywords": [
+    "screenshot",
+    "capture",
+    "server",
+    "node",
+    "local"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zohaibarsalan/screenshotter.git",
+    "directory": "packages/server"
+  },
+  "bugs": {
+    "url": "https://github.com/zohaibarsalan/screenshotter/issues"
+  },
+  "homepage": "https://github.com/zohaibarsalan/screenshotter#readme",
+  "license": "ISC",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,11 +31,13 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "prestart": "pnpm --filter @screenshotter/protocol run build",
-    "start": "tsx src/cli.ts",
+    "prepack": "pnpm run build",
     "prebuild": "pnpm --filter @screenshotter/protocol run build",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "pretest": "pnpm --filter @screenshotter/protocol run build",
     "test": "vitest run --config vitest.config.ts"
   },

@@ -2,6 +2,23 @@
   "name": "@screenshotter/widget",
   "version": "0.1.6",
   "description": "React widget for in-app screenshot capture and local save.",
+  "keywords": [
+    "screenshot",
+    "capture",
+    "widget",
+    "react",
+    "ui"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zohaibarsalan/screenshotter.git",
+    "directory": "packages/widget"
+  },
+  "bugs": {
+    "url": "https://github.com/zohaibarsalan/screenshotter/issues"
+  },
+  "homepage": "https://github.com/zohaibarsalan/screenshotter#readme",
+  "license": "ISC",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,9 +31,13 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "prepack": "pnpm run build",
     "prebuild": "pnpm --filter @screenshotter/protocol run build",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "pretest": "pnpm --filter @screenshotter/protocol run build",
     "test": "vitest run --config vitest.config.ts"
   },

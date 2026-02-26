@@ -164,6 +164,48 @@ describe("ScreenshotterWidget", () => {
     expect(fullpagePayload.mode).toBe("fullpage");
   });
 
+  it("applies selected preset dimensions for viewport and fullpage capture", async () => {
+    render(<ScreenshotterWidget enabled captureSettleMs={0} />);
+    fireEvent.click(screen.getByTestId("screenshotter-launcher"));
+    fireEvent.click(screen.getByRole("button", { name: /Advanced/i }));
+
+    fireEvent.click(screen.getByTestId("mode-viewport"));
+    fireEvent.change(screen.getByTestId("capture-preset-select"), {
+      target: { value: "iphone-15" },
+    });
+    fireEvent.click(screen.getByTestId("action-button"));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+    const viewportPayload = JSON.parse(
+      String(vi.mocked(fetch).mock.calls[0]?.[1]?.body || "{}"),
+    );
+    expect(viewportPayload.viewport).toMatchObject({
+      width: 393,
+      height: 852,
+      dpr: 3,
+    });
+
+    fireEvent.click(screen.getByTestId("mode-fullpage"));
+    fireEvent.change(screen.getByTestId("capture-preset-select"), {
+      target: { value: "macbook-pro-14" },
+    });
+    fireEvent.click(screen.getByTestId("action-button"));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+    const fullpagePayload = JSON.parse(
+      String(vi.mocked(fetch).mock.calls[1]?.[1]?.body || "{}"),
+    );
+    expect(fullpagePayload.viewport).toMatchObject({
+      width: 1512,
+      height: 982,
+      dpr: 2,
+    });
+  });
+
   it("captures once for current theme and twice for both with adapter restore", async () => {
     let theme: "light" | "dark" = "light";
     const setTheme = vi.fn(async (next: "light" | "dark") => {
@@ -245,6 +287,7 @@ describe("ScreenshotterWidget", () => {
 
     expect(screen.queryByText("JPEG quality")).toBeNull();
     expect(screen.getByText("Padding")).toBeInTheDocument();
+    expect(screen.queryByTestId("capture-preset-select")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Use JPEG format" }));
     expect(screen.getByText("JPEG quality")).toBeInTheDocument();
@@ -252,6 +295,7 @@ describe("ScreenshotterWidget", () => {
     fireEvent.click(screen.getByTestId("mode-viewport"));
     expect(screen.queryByText("Padding")).toBeNull();
     expect(screen.getByText("JPEG quality")).toBeInTheDocument();
+    expect(screen.getByTestId("capture-preset-select")).toBeInTheDocument();
   });
 
   it("cancels element picker overlay on escape", async () => {

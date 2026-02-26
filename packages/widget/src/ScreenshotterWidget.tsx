@@ -58,6 +58,136 @@ const CAPTURE_MODE_OPTIONS: readonly CaptureMode[] = [
 ];
 const FORMAT_OPTIONS: readonly CaptureFormat[] = ["png", "jpeg"];
 const THEME_OPTIONS: readonly ThemeSelection[] = ["current", "both"];
+type CaptureViewport = CapturePayload["viewport"];
+type ViewportPresetGroup = "phone" | "tablet" | "laptop" | "desktop";
+interface ViewportPreset {
+  key: string;
+  label: string;
+  width: number;
+  height: number;
+  dpr: number;
+  group: ViewportPresetGroup;
+}
+const LIVE_VIEWPORT_PRESET_KEY = "current-window";
+const VIEWPORT_PRESET_GROUPS: readonly ViewportPresetGroup[] = [
+  "phone",
+  "tablet",
+  "laptop",
+  "desktop",
+];
+const VIEWPORT_PRESET_GROUP_LABELS: Record<ViewportPresetGroup, string> = {
+  phone: "Phones",
+  tablet: "Tablets",
+  laptop: "Laptops",
+  desktop: "Desktop sizes",
+};
+const VIEWPORT_PRESETS: readonly ViewportPreset[] = [
+  {
+    key: "iphone-se",
+    label: "iPhone SE",
+    width: 375,
+    height: 667,
+    dpr: 2,
+    group: "phone",
+  },
+  {
+    key: "iphone-15",
+    label: "iPhone 15",
+    width: 393,
+    height: 852,
+    dpr: 3,
+    group: "phone",
+  },
+  {
+    key: "iphone-15-plus",
+    label: "iPhone 15 Plus",
+    width: 430,
+    height: 932,
+    dpr: 3,
+    group: "phone",
+  },
+  {
+    key: "pixel-8",
+    label: "Pixel 8",
+    width: 412,
+    height: 915,
+    dpr: 2.6,
+    group: "phone",
+  },
+  {
+    key: "ipad-mini",
+    label: "iPad mini",
+    width: 768,
+    height: 1024,
+    dpr: 2,
+    group: "tablet",
+  },
+  {
+    key: "ipad-pro-11",
+    label: "iPad Pro 11",
+    width: 834,
+    height: 1194,
+    dpr: 2,
+    group: "tablet",
+  },
+  {
+    key: "macbook-air-13",
+    label: "MacBook Air 13",
+    width: 1440,
+    height: 900,
+    dpr: 2,
+    group: "laptop",
+  },
+  {
+    key: "macbook-pro-14",
+    label: "MacBook Pro 14",
+    width: 1512,
+    height: 982,
+    dpr: 2,
+    group: "laptop",
+  },
+  {
+    key: "macbook-pro-16",
+    label: "MacBook Pro 16",
+    width: 1728,
+    height: 1117,
+    dpr: 2,
+    group: "laptop",
+  },
+  {
+    key: "hd-1366",
+    label: "HD 1366",
+    width: 1366,
+    height: 768,
+    dpr: 1,
+    group: "desktop",
+  },
+  {
+    key: "full-hd",
+    label: "Full HD 1080p",
+    width: 1920,
+    height: 1080,
+    dpr: 1,
+    group: "desktop",
+  },
+  {
+    key: "qhd-1440p",
+    label: "QHD 1440p",
+    width: 2560,
+    height: 1440,
+    dpr: 1,
+    group: "desktop",
+  },
+];
+const VIEWPORT_PRESETS_BY_KEY: ReadonlyMap<string, ViewportPreset> = new Map(
+  VIEWPORT_PRESETS.map((preset) => [preset.key, preset] as const),
+);
+const VIEWPORT_PRESETS_BY_GROUP: Record<ViewportPresetGroup, readonly ViewportPreset[]> = {
+  phone: VIEWPORT_PRESETS.filter((preset) => preset.group === "phone"),
+  tablet: VIEWPORT_PRESETS.filter((preset) => preset.group === "tablet"),
+  laptop: VIEWPORT_PRESETS.filter((preset) => preset.group === "laptop"),
+  desktop: VIEWPORT_PRESETS.filter((preset) => preset.group === "desktop"),
+};
 const STATUS_HIDE_DELAY_MS = 2600;
 
 const WIDGET_PANEL_CSS = `
@@ -446,6 +576,23 @@ const WIDGET_PANEL_CSS = `
   font-family: var(--ssw-font-mono);
   font-size: 10px;
 }
+.ssw-setting-value-left {
+  text-align: left;
+}
+.ssw-preset-select {
+  width: 100%;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid hsl(var(--ui-border));
+  background: hsl(var(--ui-panel-2) / 0.35);
+  color: hsl(var(--ui-fg));
+  font-family: var(--ssw-font-ui);
+  font-size: 12px;
+  padding: 0 9px;
+}
+.ssw-preset-select:disabled {
+  opacity: 0.6;
+}
 .ssw-mini-segment {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -577,18 +724,18 @@ function waitForMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForVisualAssetsReady(timeoutMs = 2500): Promise<void> {
+async function waitForVisualAssetsReady(
+  sourceDocument: Document,
+  timeoutMs = 2500,
+): Promise<void> {
   const fontsPromise =
-    typeof document !== "undefined" && "fonts" in document
-      ? (document as Document & { fonts?: FontFaceSet }).fonts?.ready
+    "fonts" in sourceDocument
+      ? (sourceDocument as Document & { fonts?: FontFaceSet }).fonts?.ready
       : undefined;
 
-  const imageDecodes =
-    typeof document !== "undefined"
-      ? Array.from(document.images)
-          .filter((image) => !image.complete)
-          .map((image) => image.decode().catch(() => undefined))
-      : [];
+  const imageDecodes = Array.from(sourceDocument.images)
+    .filter((image) => !image.complete)
+    .map((image) => image.decode().catch(() => undefined));
 
   await Promise.race([
     Promise.all([
@@ -676,6 +823,52 @@ function actionLabel(mode: CaptureMode, isPickingElement: boolean, isSaving: boo
     return isSaving ? "Capturing..." : "Capture viewport";
   }
   return isSaving ? "Capturing..." : "Capture full page";
+}
+
+function getViewportPreset(key: string): ViewportPreset | null {
+  return VIEWPORT_PRESETS_BY_KEY.get(key) ?? null;
+}
+
+function readLiveViewport(): CaptureViewport {
+  if (typeof window === "undefined") {
+    return {
+      width: 1,
+      height: 1,
+      dpr: 1,
+    };
+  }
+  return {
+    width: Math.max(1, window.innerWidth),
+    height: Math.max(1, window.innerHeight),
+    dpr: Math.max(0.1, window.devicePixelRatio || 1),
+  };
+}
+
+function resolveCaptureViewport(
+  mode: CaptureMode,
+  presetKey: string,
+  liveViewport: CaptureViewport,
+): CaptureViewport {
+  if (mode === "element" || presetKey === LIVE_VIEWPORT_PRESET_KEY) {
+    return liveViewport;
+  }
+  const preset = getViewportPreset(presetKey);
+  if (!preset) return liveViewport;
+  return {
+    width: preset.width,
+    height: preset.height,
+    dpr: preset.dpr,
+  };
+}
+
+function formatDpr(dpr: number): string {
+  const rounded = Math.round(dpr * 10) / 10;
+  if (Number.isInteger(rounded)) return String(rounded);
+  return rounded.toFixed(1).replace(/\.0$/, "");
+}
+
+function formatViewportMetrics(viewport: CaptureViewport): string {
+  return `${viewport.width}x${viewport.height} @${formatDpr(viewport.dpr)}x`;
 }
 
 function statusChipLabel(kind: StatusState["kind"]): string {
@@ -796,19 +989,114 @@ function toFriendlyError(error: unknown): string {
   return String(error);
 }
 
-function isWidgetElement(element: HTMLElement | null): boolean {
+function isWidgetElement(element: Element | null): boolean {
   if (!element) return false;
   return element.closest(`[${UI_MARKER_ATTR}="true"]`) !== null;
 }
 
-function getDomCaptureTarget(mode: CaptureMode, element: HTMLElement | null): HTMLElement {
+function getDomCaptureTarget(
+  mode: CaptureMode,
+  element: HTMLElement | null,
+  sourceDocument: Document,
+): HTMLElement {
   if (mode === "element") {
     if (!element) {
       throw new Error("No element selected for element capture.");
     }
     return element;
   }
-  return document.documentElement;
+  return sourceDocument.documentElement;
+}
+
+interface PresetCaptureContext {
+  targetDocument: Document;
+  targetRoot: HTMLElement;
+  scrollX: number;
+  scrollY: number;
+  cleanup: () => void;
+}
+
+async function createPresetCaptureContext(
+  viewport: CaptureViewport,
+): Promise<PresetCaptureContext> {
+  const host = document.body || document.documentElement;
+  if (!host) {
+    throw new Error("Document is not ready for preset capture.");
+  }
+
+  const frame = document.createElement("iframe");
+  frame.setAttribute(UI_MARKER_ATTR, "true");
+  frame.setAttribute("aria-hidden", "true");
+  frame.tabIndex = -1;
+  frame.style.position = "fixed";
+  frame.style.left = "-100000px";
+  frame.style.top = "0";
+  frame.style.width = `${Math.max(1, Math.round(viewport.width))}px`;
+  frame.style.height = `${Math.max(1, Math.round(viewport.height))}px`;
+  frame.style.border = "0";
+  frame.style.opacity = "0";
+  frame.style.pointerEvents = "none";
+  frame.style.zIndex = "-1";
+  host.appendChild(frame);
+
+  const cleanup = () => {
+    frame.remove();
+  };
+
+  try {
+    const frameDocument = frame.contentDocument;
+    if (!frameDocument) {
+      throw new Error("Could not initialize preset capture frame.");
+    }
+
+    frameDocument.open();
+    frameDocument.write("<!doctype html><html><head></head><body></body></html>");
+    frameDocument.close();
+
+    const clonedRoot = document.documentElement.cloneNode(true) as HTMLElement;
+    const widgetNodes = clonedRoot.querySelectorAll(`[${UI_MARKER_ATTR}="true"]`);
+    for (const node of widgetNodes) {
+      node.remove();
+    }
+    const scriptNodes = clonedRoot.querySelectorAll("script");
+    for (const node of scriptNodes) {
+      node.remove();
+    }
+
+    const importedRoot = frameDocument.importNode(clonedRoot, true) as HTMLElement;
+    if (frameDocument.documentElement) {
+      frameDocument.replaceChild(importedRoot, frameDocument.documentElement);
+    } else {
+      frameDocument.appendChild(importedRoot);
+    }
+
+    const frameHead = frameDocument.head;
+    if (frameHead && !frameHead.querySelector("base")) {
+      const base = frameDocument.createElement("base");
+      base.href = window.location.href;
+      frameHead.prepend(base);
+    }
+
+    await waitForMs(60);
+    await waitForVisualAssetsReady(frameDocument, 3000);
+
+    const frameRoot = frameDocument.documentElement;
+    const maxScrollX = Math.max(0, frameRoot.scrollWidth - viewport.width);
+    const maxScrollY = Math.max(0, frameRoot.scrollHeight - viewport.height);
+    const scrollX = Math.min(Math.max(0, window.scrollX), maxScrollX);
+    const scrollY = Math.min(Math.max(0, window.scrollY), maxScrollY);
+
+    return {
+      targetDocument: frameDocument,
+      targetRoot: frameRoot,
+      scrollX,
+      scrollY,
+      cleanup,
+    };
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
 }
 
 function assertBrowser(): void {
@@ -1147,16 +1435,19 @@ function getViewportCrop(
   scale: number,
   sourceWidth: number,
   sourceHeight: number,
+  viewport: CaptureViewport,
+  scrollX: number,
+  scrollY: number,
 ): {
   sx: number;
   sy: number;
   sw: number;
   sh: number;
 } {
-  const requestedWidth = Math.max(1, Math.round(window.innerWidth * scale));
-  const requestedHeight = Math.max(1, Math.round(window.innerHeight * scale));
-  const sx = Math.max(0, Math.round(window.scrollX * scale));
-  const sy = Math.max(0, Math.round(window.scrollY * scale));
+  const requestedWidth = Math.max(1, Math.round(viewport.width * scale));
+  const requestedHeight = Math.max(1, Math.round(viewport.height * scale));
+  const sx = Math.max(0, Math.round(scrollX * scale));
+  const sy = Math.max(0, Math.round(scrollY * scale));
   const sw = Math.max(1, Math.min(requestedWidth, sourceWidth - sx));
   const sh = Math.max(1, Math.min(requestedHeight, sourceHeight - sy));
   return {
@@ -1164,6 +1455,20 @@ function getViewportCrop(
     sy,
     sw,
     sh,
+  };
+}
+
+function getFullPageRenderSize(
+  viewport: CaptureViewport,
+  sourceDocument: Document,
+): {
+  width: number;
+  height: number;
+} {
+  const doc = sourceDocument.documentElement;
+  return {
+    width: Math.max(1, viewport.width),
+    height: Math.max(Math.max(doc.scrollHeight, doc.clientHeight), viewport.height),
   };
 }
 
@@ -1213,6 +1518,9 @@ async function renderWithHtml2Canvas(
   target: HTMLElement,
   scale: number,
   ignoreElements: (element: Element) => boolean,
+  viewport: CaptureViewport,
+  sourceDocument: Document,
+  scroll: { x: number; y: number },
 ): Promise<HTMLCanvasElement> {
   const commonOptions: Html2CanvasOptions = {
     backgroundColor: null,
@@ -1226,31 +1534,29 @@ async function renderWithHtml2Canvas(
   if (mode === "viewport") {
     options = {
       ...commonOptions,
-      width: window.innerWidth,
-      height: window.innerHeight,
-      x: window.scrollX,
-      y: window.scrollY,
-      scrollX: window.scrollX,
-      scrollY: window.scrollY,
-      windowWidth: window.innerWidth,
-      windowHeight: window.innerHeight,
+      width: viewport.width,
+      height: viewport.height,
+      x: scroll.x,
+      y: scroll.y,
+      scrollX: scroll.x,
+      scrollY: scroll.y,
+      windowWidth: viewport.width,
+      windowHeight: viewport.height,
     };
   }
 
   if (mode === "fullpage") {
-    const doc = document.documentElement;
-    const width = Math.max(doc.scrollWidth, doc.clientWidth);
-    const height = Math.max(doc.scrollHeight, doc.clientHeight);
+    const fullPage = getFullPageRenderSize(viewport, sourceDocument);
     options = {
       ...commonOptions,
-      width,
-      height,
+      width: fullPage.width,
+      height: fullPage.height,
       x: 0,
       y: 0,
       scrollX: 0,
       scrollY: 0,
-      windowWidth: width,
-      windowHeight: height,
+      windowWidth: viewport.width,
+      windowHeight: viewport.height,
     };
   }
 
@@ -1290,9 +1596,11 @@ async function renderWithHtmlToImageFallback(
   mode: CaptureMode,
   target: HTMLElement,
   scale: number,
+  viewport: CaptureViewport,
+  sourceDocument: Document,
+  scroll: { x: number; y: number },
 ): Promise<HTMLCanvasElement> {
   const filter = (node: HTMLElement): boolean => {
-    if (!(node instanceof HTMLElement)) return true;
     return !isWidgetElement(node);
   };
 
@@ -1305,9 +1613,16 @@ async function renderWithHtmlToImageFallback(
     });
   }
 
-  const doc = document.documentElement;
-  const fullWidth = Math.max(doc.scrollWidth, doc.clientWidth);
-  const fullHeight = Math.max(doc.scrollHeight, doc.clientHeight);
+  const doc = sourceDocument.documentElement;
+  const fullPage = getFullPageRenderSize(viewport, sourceDocument);
+  const fullWidth =
+    mode === "fullpage"
+      ? fullPage.width
+      : Math.max(Math.max(doc.scrollWidth, doc.clientWidth), viewport.width);
+  const fullHeight =
+    mode === "fullpage"
+      ? fullPage.height
+      : Math.max(Math.max(doc.scrollHeight, doc.clientHeight), viewport.height);
   const fullCanvas = await toCanvas(doc, {
     cacheBust: true,
     pixelRatio: scale,
@@ -1327,7 +1642,14 @@ async function renderWithHtmlToImageFallback(
     return fullCanvas;
   }
 
-  const crop = getViewportCrop(scale, fullCanvas.width, fullCanvas.height);
+  const crop = getViewportCrop(
+    scale,
+    fullCanvas.width,
+    fullCanvas.height,
+    viewport,
+    scroll.x,
+    scroll.y,
+  );
   return cropCanvas(fullCanvas, crop);
 }
 
@@ -1351,6 +1673,7 @@ export function ScreenshotterWidget({
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [mode, setMode] = useState<CaptureMode>(defaultMode);
+  const [presetKey, setPresetKey] = useState<string>(LIVE_VIEWPORT_PRESET_KEY);
   const [format, setFormat] = useState<CaptureFormat>("png");
   const [quality, setQuality] = useState<number>(90);
   const [elementPadding, setElementPadding] = useState<number>(() =>
@@ -1369,6 +1692,9 @@ export function ScreenshotterWidget({
   const [uiTheme, setUiTheme] = useState<ThemeValue>(() =>
     typeof window !== "undefined" ? resolveWidgetTheme() : "dark",
   );
+  const [liveViewport, setLiveViewport] = useState<CaptureViewport>(() =>
+    readLiveViewport(),
+  );
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const isMountedRef = useRef(true);
@@ -1381,6 +1707,18 @@ export function ScreenshotterWidget({
     () => normalizeElementPadding(elementPadding),
     [elementPadding],
   );
+  const captureViewportPreview = useMemo(
+    () => resolveCaptureViewport(mode, presetKey, liveViewport),
+    [liveViewport, mode, presetKey],
+  );
+  const capturePreset = useMemo(() => getViewportPreset(presetKey), [presetKey]);
+  const presetDescription = useMemo(() => {
+    if (mode === "element") return formatViewportMetrics(liveViewport);
+    if (presetKey === LIVE_VIEWPORT_PRESET_KEY || !capturePreset) {
+      return `Current window ${formatViewportMetrics(captureViewportPreview)}`;
+    }
+    return `${capturePreset.label} ${formatViewportMetrics(captureViewportPreview)}`;
+  }, [capturePreset, captureViewportPreview, liveViewport, mode, presetKey]);
 
   const runIfMounted = useCallback((work: () => void) => {
     if (!isMountedRef.current) return;
@@ -1402,6 +1740,18 @@ export function ScreenshotterWidget({
       pendingRequestControllersRef.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (!isEnabled || typeof window === "undefined") return undefined;
+    const syncViewport = () => {
+      setLiveViewport(readLiveViewport());
+    };
+    syncViewport();
+    window.addEventListener("resize", syncViewport);
+    return () => {
+      window.removeEventListener("resize", syncViewport);
+    };
+  }, [isEnabled]);
 
   useEffect(() => {
     if (!isEnabled || typeof window === "undefined") return undefined;
@@ -1524,21 +1874,40 @@ export function ScreenshotterWidget({
       assertBrowser();
       runIfMounted(() => setHideUiForCapture(true));
       await waitForPaint();
-      await waitForVisualAssetsReady();
+      await waitForVisualAssetsReady(document);
+
+      const live = readLiveViewport();
+      const captureViewport = resolveCaptureViewport(mode, presetKey, live);
+      let captureDocument: Document = document;
+      let captureTarget = getDomCaptureTarget(mode, selectedElement, captureDocument);
+      let captureScroll = { x: window.scrollX, y: window.scrollY };
+      let cleanupCaptureContext: () => void = () => undefined;
 
       try {
-        const target = getDomCaptureTarget(mode, selectedElement);
-        const ignoreElements = (element: Element): boolean =>
-          element instanceof HTMLElement && isWidgetElement(element);
+        if (mode !== "element" && presetKey !== LIVE_VIEWPORT_PRESET_KEY) {
+          const presetContext = await createPresetCaptureContext(captureViewport);
+          captureDocument = presetContext.targetDocument;
+          captureTarget = presetContext.targetRoot;
+          captureScroll = {
+            x: presetContext.scrollX,
+            y: presetContext.scrollY,
+          };
+          cleanupCaptureContext = presetContext.cleanup;
+        }
+
+        const ignoreElements = (element: Element): boolean => isWidgetElement(element);
         let canvas: HTMLCanvasElement;
         if (mode === "element" && selectedElement) {
           const rect = selectedElement.getBoundingClientRect();
           try {
             const viewportCanvas = await renderWithHtml2Canvas(
               "viewport",
-              document.documentElement,
+              captureDocument.documentElement,
               scale,
               ignoreElements,
+              live,
+              captureDocument,
+              { x: window.scrollX, y: window.scrollY },
             );
             canvas = cropElementFromViewportCanvas(
               viewportCanvas,
@@ -1550,8 +1919,11 @@ export function ScreenshotterWidget({
             try {
               const viewportCanvas = await renderWithHtmlToImageFallback(
                 "viewport",
-                document.documentElement,
+                captureDocument.documentElement,
                 scale,
+                live,
+                captureDocument,
+                { x: window.scrollX, y: window.scrollY },
               );
               canvas = cropElementFromViewportCanvas(
                 viewportCanvas,
@@ -1560,14 +1932,37 @@ export function ScreenshotterWidget({
                 safeElementPaddingPx,
               );
             } catch {
-              canvas = await renderWithHtml2Canvas(mode, target, scale, ignoreElements);
+              canvas = await renderWithHtml2Canvas(
+                mode,
+                captureTarget,
+                scale,
+                ignoreElements,
+                captureViewport,
+                captureDocument,
+                captureScroll,
+              );
             }
           }
         } else {
           try {
-            canvas = await renderWithHtml2Canvas(mode, target, scale, ignoreElements);
+            canvas = await renderWithHtml2Canvas(
+              mode,
+              captureTarget,
+              scale,
+              ignoreElements,
+              captureViewport,
+              captureDocument,
+              captureScroll,
+            );
           } catch {
-            canvas = await renderWithHtmlToImageFallback(mode, target, scale);
+            canvas = await renderWithHtmlToImageFallback(
+              mode,
+              captureTarget,
+              scale,
+              captureViewport,
+              captureDocument,
+              captureScroll,
+            );
           }
         }
         const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
@@ -1595,21 +1990,28 @@ export function ScreenshotterWidget({
           theme,
           selector: elementTarget ? toSelector(elementTarget) : undefined,
           selectorName: elementTarget ? toSelectorName(elementTarget) : undefined,
-          viewport: {
-            width: window.innerWidth,
-            height: window.innerHeight,
-            dpr: window.devicePixelRatio || 1,
-          },
+          viewport: captureViewport,
           capturedAt: now,
           imageBase64,
         };
 
         return await postCapture(payload);
       } finally {
+        cleanupCaptureContext();
         runIfMounted(() => setHideUiForCapture(false));
       }
     },
-    [format, mode, postCapture, project, quality, runIfMounted, safeElementPaddingPx, scale],
+    [
+      format,
+      mode,
+      postCapture,
+      presetKey,
+      project,
+      quality,
+      runIfMounted,
+      safeElementPaddingPx,
+      scale,
+    ],
   );
 
   const executeCapture = useCallback(
@@ -2023,6 +2425,38 @@ export function ScreenshotterWidget({
                           onChange={(event) => setElementPadding(Number(event.currentTarget.value))}
                         />
                       </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {mode !== "element" ? (
+                  <div className="ssw-setting">
+                    <div>
+                      <p className="ssw-setting-label">Preset</p>
+                      <p className="ssw-setting-help">Viewport and full page only</p>
+                    </div>
+                    <div>
+                      <select
+                        aria-label="Capture preset"
+                        data-testid="capture-preset-select"
+                        className="ui-focus ssw-preset-select"
+                        value={presetKey}
+                        onChange={(event) => setPresetKey(event.currentTarget.value)}
+                      >
+                        <option value={LIVE_VIEWPORT_PRESET_KEY}>Current window</option>
+                        {VIEWPORT_PRESET_GROUPS.map((group) => (
+                          <optgroup key={group} label={VIEWPORT_PRESET_GROUP_LABELS[group]}>
+                            {VIEWPORT_PRESETS_BY_GROUP[group].map((preset) => (
+                              <option key={preset.key} value={preset.key}>
+                                {preset.label}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                      <span className="ssw-setting-value ssw-setting-value-left">
+                        {presetDescription}
+                      </span>
                     </div>
                   </div>
                 ) : null}

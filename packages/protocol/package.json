@@ -2,6 +2,23 @@
   "name": "@screenshotter/protocol",
   "version": "0.1.0",
   "description": "Shared screenshot payload protocol and validation helpers.",
+  "keywords": [
+    "screenshot",
+    "capture",
+    "protocol",
+    "validation",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zohaibarsalan/screenshotter.git",
+    "directory": "packages/protocol"
+  },
+  "bugs": {
+    "url": "https://github.com/zohaibarsalan/screenshotter/issues"
+  },
+  "homepage": "https://github.com/zohaibarsalan/screenshotter#readme",
+  "license": "ISC",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,8 +31,12 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "test": "vitest run --config vitest.config.ts"
   }
 }

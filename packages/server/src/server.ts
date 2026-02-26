@@ -9,7 +9,7 @@ import {
 import {
   DEFAULT_SERVER_CONFIG,
   type ScreenshotterServerConfig,
-} from "./config";
+} from "./config.js";
 
 export interface RunningScreenshotterServer {
   url: string;
