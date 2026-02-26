@@ -11,6 +11,7 @@ import {
 import html2canvas from "html2canvas-pro";
 import { toCanvas } from "html-to-image";
 import {
+  buildCaptureFileParts,
   clampQualityToScale,
   type CaptureFormat,
   type CaptureMode,
@@ -696,8 +697,6 @@ type StatusState =
   | { kind: "info"; message: string };
 
 export interface ScreenshotterWidgetProps {
-  endpoint?: string;
-  token?: string;
   enabled?: boolean;
   project?: string;
   elementPaddingPx?: number;
@@ -902,6 +901,45 @@ function toSelector(element: HTMLElement): string {
     return `${element.tagName.toLowerCase()}.${classList.join(".")}`;
   }
   return element.tagName.toLowerCase();
+}
+
+function decodeBase64ToBytes(raw: string): Uint8Array {
+  const normalized = raw.includes(",") ? raw.split(",").pop() || "" : raw;
+  if (!normalized) return new Uint8Array();
+  const decoded = atob(normalized);
+  const bytes = new Uint8Array(decoded.length);
+  for (let i = 0; i < decoded.length; i += 1) {
+    bytes[i] = decoded.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function downloadCapture(payload: CapturePayload): SaveResult {
+  const bytes = decodeBase64ToBytes(payload.imageBase64);
+  if (!bytes.length) {
+    throw new Error("imageBase64 could not be decoded.");
+  }
+  const fileParts = buildCaptureFileParts(payload);
+  const mimeType = payload.format === "jpeg" ? "image/jpeg" : "image/png";
+  const blobBytes = new Uint8Array(bytes.byteLength);
+  blobBytes.set(bytes);
+  const blob = new Blob([blobBytes], { type: mimeType });
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = fileParts.fileName;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+
+  return {
+    ok: true,
+    relativePath: fileParts.relativePath,
+    absolutePath: fileParts.fileName,
+    bytes: bytes.byteLength,
+  };
 }
 
 function numberFromPx(raw: string): number {
@@ -1654,8 +1692,6 @@ async function renderWithHtmlToImageFallback(
 }
 
 export function ScreenshotterWidget({
-  endpoint = "http://127.0.0.1:4783/api/captures",
-  token = "",
   enabled,
   project = "app",
   elementPaddingPx = 8,
@@ -1699,7 +1735,6 @@ export function ScreenshotterWidget({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const isMountedRef = useRef(true);
   const isCaptureInFlightRef = useRef(false);
-  const pendingRequestControllersRef = useRef<Set<AbortController>>(new Set());
 
   const canCaptureBothThemes = Boolean(themeAdapter);
   const scale = useMemo(() => clampQualityToScale(quality), [quality]);
@@ -1734,10 +1769,6 @@ export function ScreenshotterWidget({
     return () => {
       isMountedRef.current = false;
       isCaptureInFlightRef.current = false;
-      for (const controller of pendingRequestControllersRef.current) {
-        controller.abort();
-      }
-      pendingRequestControllersRef.current.clear();
     };
   }, []);
 
@@ -1831,42 +1862,9 @@ export function ScreenshotterWidget({
 
   const postCapture = useCallback(
     async (payload: CapturePayload): Promise<SaveResult> => {
-      const headers: Record<string, string> = {
-        "content-type": "application/json",
-      };
-      if (token) {
-        headers["x-screenshotter-token"] = token;
-      }
-
-      const controller = new AbortController();
-      pendingRequestControllersRef.current.add(controller);
-      let response: Response;
-      try {
-        response = await fetch(endpoint, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-      } finally {
-        pendingRequestControllersRef.current.delete(controller);
-      }
-
-      const body = (await response.json().catch(() => null)) as
-        | SaveResult
-        | { ok: false; error?: string }
-        | null;
-
-      if (!response.ok || !body || !("ok" in body) || !body.ok) {
-        const message =
-          body && "error" in body && body.error
-            ? body.error
-            : `Capture failed with status ${response.status}.`;
-        throw new Error(message);
-      }
-      return body;
+      return downloadCapture(payload);
     },
-    [endpoint, token],
+    [],
   );
 
   const runSingleCapture = useCallback(

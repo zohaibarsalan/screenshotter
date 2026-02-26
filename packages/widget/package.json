@@ -1,7 +1,7 @@
 {
-  "name": "@screenshotter/widget",
+  "name": "screenshotter",
   "version": "0.1.6",
-  "description": "React widget for in-app screenshot capture and local save.",
+  "description": "React widget for in-app screenshot capture with direct browser downloads.",
   "keywords": [
     "screenshot",
     "capture",

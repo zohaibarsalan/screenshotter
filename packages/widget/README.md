@@ -1,53 +1,52 @@
-# @screenshotter/widget
+# screenshotter
 
-React screenshot widget for in-app capture workflows.
-
-Supports element, viewport, and full-page captures with optional dual-theme capture.
+In-app screenshot capture for React apps with a one-package, download-only workflow.
 
 ## Install
 
 ```bash
-pnpm add @screenshotter/widget
+pnpm add screenshotter
 ```
 
 ## Quick Start
 
-```tsx
-"use client";
+```ts
+import { defineScreenshotterConfig, mountScreenshotter } from "screenshotter";
 
-import { ScreenshotterWidget } from "@screenshotter/widget";
-
-export function DevScreenshotWidget() {
-  return (
-    <ScreenshotterWidget
-      endpoint="http://127.0.0.1:4783/api/captures"
-      project="my-app"
-    />
-  );
-}
+mountScreenshotter(
+  defineScreenshotterConfig({
+    enabled: true,
+    project: "my-app",
+  }),
+);
 ```
 
-## Main Props
+Import that file once in your client entrypoint.
 
-- `endpoint?: string` default `http://127.0.0.1:4783/api/captures`
-- `project?: string` default `"app"`
-- `enabled?: boolean` default `NODE_ENV === "development"`
-- `defaultMode?: "element" | "viewport" | "fullpage"`
-- `themeSelectionDefault?: "current" | "both"`
-- `themeAdapter?: { getCurrentTheme; setTheme }` required for `"both"` capture
-- `onSaved?: (result) => void`
-- `onError?: (message) => void`
+## What You Get
+
+- floating capture widget
+- element / viewport / fullpage modes
+- `png` and `jpeg` output
+- browser download output (no backend setup)
 
 ## Exports
 
 - `ScreenshotterWidget`
+- `mountScreenshotter(options)`
+- `defineScreenshotterConfig(config)`
 - `type ScreenshotterWidgetProps`
-- re-exported protocol types (`CapturePayload`, `SaveResult`, etc.)
+- `type MountScreenshotterOptions`
 
-## Repository
+## Notes
 
-- Full setup docs: [screenshotter README](https://github.com/zohaibarsalan/screenshotter#readme)
-- Issues: [GitHub Issues](https://github.com/zohaibarsalan/screenshotter/issues)
+- Current package behavior is download-only.
+- For dual-theme capture, provide `themeAdapter`.
+
+## Full Documentation
+
+- [Repository README](https://github.com/zohaibarsalan/screenshotter#readme)
+- [Issue Tracker](https://github.com/zohaibarsalan/screenshotter/issues)
 
 ## License
 

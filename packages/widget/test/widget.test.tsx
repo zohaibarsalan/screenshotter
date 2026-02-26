@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ScreenshotterWidget } from "../src";
-import type { SaveResult } from "@screenshotter/protocol";
 
 const html2canvasMock = vi.fn();
 const htmlToImageCanvasMock = vi.fn();
@@ -21,15 +20,6 @@ function createMockCanvas(): HTMLCanvasElement {
   } as unknown as HTMLCanvasElement;
 }
 
-function makeSaveResult(path = "live-20260221/matter-health/capture.png"): SaveResult {
-  return {
-    ok: true,
-    relativePath: path,
-    absolutePath: `/tmp/${path}`,
-    bytes: 2048,
-  };
-}
-
 function assignRect(element: HTMLElement): void {
   Object.defineProperty(element, "getBoundingClientRect", {
     value: () => ({
@@ -47,20 +37,35 @@ function assignRect(element: HTMLElement): void {
   });
 }
 
-function mockPendingFetch(): void {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      return new Promise<Response>((_resolve, reject) => {
-        const signal = init?.signal;
-        if (signal) {
-          signal.addEventListener("abort", () => {
-            reject(new DOMException("Request aborted", "AbortError"));
-          });
-        }
-      });
-    }),
-  );
+function setupDownloadMocks(): {
+  clickSpy: ReturnType<typeof vi.spyOn>;
+  createObjectURLMock: ReturnType<typeof vi.fn>;
+  revokeObjectURLMock: ReturnType<typeof vi.fn>;
+  restore: () => void;
+} {
+  const clickSpy = vi
+    .spyOn(HTMLAnchorElement.prototype, "click")
+    .mockImplementation(() => undefined);
+  const createObjectURLMock = vi.fn(() => "blob:download-mock");
+  const revokeObjectURLMock = vi.fn();
+
+  Object.defineProperty(globalThis.URL, "createObjectURL", {
+    value: createObjectURLMock,
+    configurable: true,
+    writable: true,
+  });
+  Object.defineProperty(globalThis.URL, "revokeObjectURL", {
+    value: revokeObjectURLMock,
+    configurable: true,
+    writable: true,
+  });
+
+  return {
+    clickSpy,
+    createObjectURLMock,
+    revokeObjectURLMock,
+    restore: () => clickSpy.mockRestore(),
+  };
 }
 
 beforeEach(() => {
@@ -68,14 +73,6 @@ beforeEach(() => {
   htmlToImageCanvasMock.mockReset();
   html2canvasMock.mockResolvedValue(createMockCanvas());
   htmlToImageCanvasMock.mockResolvedValue(createMockCanvas());
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => makeSaveResult(),
-    }),
-  );
 });
 
 describe("ScreenshotterWidget", () => {
@@ -99,15 +96,14 @@ describe("ScreenshotterWidget", () => {
     expect(panel).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("supports element pick flow with hover overlay and immediate capture", async () => {
+  it("supports element pick flow and downloads the capture", async () => {
+    const downloads = setupDownloadMocks();
+    const onSaved = vi.fn();
+
     render(
       <div>
         <div data-testid="target">Target</div>
-        <ScreenshotterWidget
-          enabled
-          captureSettleMs={0}
-          endpoint="http://127.0.0.1:4783/api/captures"
-        />
+        <ScreenshotterWidget enabled captureSettleMs={0} onSaved={onSaved} />
       </div>,
     );
 
@@ -128,43 +124,46 @@ describe("ScreenshotterWidget", () => {
     fireEvent.click(target);
 
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
     });
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    const saved = onSaved.mock.calls[0]?.[0];
+    expect(saved?.relativePath).toContain("-element-");
+    expect(downloads.createObjectURLMock).toHaveBeenCalledTimes(1);
+    expect(downloads.revokeObjectURLMock).toHaveBeenCalledTimes(1);
 
-    const call = vi.mocked(fetch).mock.calls[0];
-    const payload = JSON.parse(String(call?.[1]?.body || "{}"));
-    expect(payload.mode).toBe("element");
-    expect(payload.selectorName).toBeTruthy();
+    downloads.restore();
   });
 
-  it("sends viewport and fullpage payload modes", async () => {
-    render(<ScreenshotterWidget enabled captureSettleMs={0} />);
+  it("downloads viewport and fullpage captures with mode-specific names", async () => {
+    const downloads = setupDownloadMocks();
+    const onSaved = vi.fn();
+
+    render(<ScreenshotterWidget enabled captureSettleMs={0} onSaved={onSaved} />);
     fireEvent.click(screen.getByTestId("screenshotter-launcher"));
 
     fireEvent.click(screen.getByTestId("mode-viewport"));
     fireEvent.click(screen.getByTestId("action-button"));
-
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
     });
-    const viewportPayload = JSON.parse(
-      String(vi.mocked(fetch).mock.calls[0]?.[1]?.body || "{}"),
-    );
-    expect(viewportPayload.mode).toBe("viewport");
+    const viewportSaved = onSaved.mock.calls[0]?.[0];
+    expect(viewportSaved?.relativePath).toContain("-viewport-");
 
     fireEvent.click(screen.getByTestId("mode-fullpage"));
     fireEvent.click(screen.getByTestId("action-button"));
-
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(2);
     });
-    const fullpagePayload = JSON.parse(
-      String(vi.mocked(fetch).mock.calls[1]?.[1]?.body || "{}"),
-    );
-    expect(fullpagePayload.mode).toBe("fullpage");
+    const fullpageSaved = onSaved.mock.calls[1]?.[0];
+    expect(fullpageSaved?.relativePath).toContain("-fullpage-");
+
+    downloads.restore();
   });
 
   it("applies selected preset dimensions for viewport and fullpage capture", async () => {
+    const downloads = setupDownloadMocks();
+
     render(<ScreenshotterWidget enabled captureSettleMs={0} />);
     fireEvent.click(screen.getByTestId("screenshotter-launcher"));
     fireEvent.click(screen.getByRole("button", { name: /Advanced/i }));
@@ -174,39 +173,31 @@ describe("ScreenshotterWidget", () => {
       target: { value: "iphone-15" },
     });
     fireEvent.click(screen.getByTestId("action-button"));
-
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
     });
-    const viewportPayload = JSON.parse(
-      String(vi.mocked(fetch).mock.calls[0]?.[1]?.body || "{}"),
-    );
-    expect(viewportPayload.viewport).toMatchObject({
-      width: 393,
-      height: 852,
-      dpr: 3,
-    });
+    const viewportOptions = html2canvasMock.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(viewportOptions.width).toBe(393);
+    expect(viewportOptions.height).toBe(852);
 
     fireEvent.click(screen.getByTestId("mode-fullpage"));
     fireEvent.change(screen.getByTestId("capture-preset-select"), {
       target: { value: "macbook-pro-14" },
     });
     fireEvent.click(screen.getByTestId("action-button"));
-
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(2);
     });
-    const fullpagePayload = JSON.parse(
-      String(vi.mocked(fetch).mock.calls[1]?.[1]?.body || "{}"),
-    );
-    expect(fullpagePayload.viewport).toMatchObject({
-      width: 1512,
-      height: 982,
-      dpr: 2,
-    });
+    const fullpageOptions = html2canvasMock.mock.calls[1]?.[1] as Record<string, unknown>;
+    expect(fullpageOptions.windowWidth).toBe(1512);
+    expect(fullpageOptions.windowHeight).toBe(982);
+
+    downloads.restore();
   });
 
   it("captures once for current theme and twice for both with adapter restore", async () => {
+    const downloads = setupDownloadMocks();
+    const onSaved = vi.fn();
     let theme: "light" | "dark" = "light";
     const setTheme = vi.fn(async (next: "light" | "dark") => {
       theme = next;
@@ -216,6 +207,7 @@ describe("ScreenshotterWidget", () => {
       <ScreenshotterWidget
         enabled
         captureSettleMs={0}
+        onSaved={onSaved}
         themeAdapter={{
           getCurrentTheme: () => theme,
           setTheme,
@@ -226,12 +218,13 @@ describe("ScreenshotterWidget", () => {
     fireEvent.click(screen.getByTestId("screenshotter-launcher"));
     fireEvent.click(screen.getByTestId("mode-viewport"));
     fireEvent.click(screen.getByTestId("action-button"));
-
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
     });
+    expect(onSaved).toHaveBeenCalledTimes(1);
 
-    vi.mocked(fetch).mockClear();
+    downloads.clickSpy.mockClear();
+    onSaved.mockClear();
     setTheme.mockClear();
     theme = "light";
 
@@ -239,6 +232,7 @@ describe("ScreenshotterWidget", () => {
       <ScreenshotterWidget
         enabled
         captureSettleMs={0}
+        onSaved={onSaved}
         themeAdapter={{
           getCurrentTheme: () => theme,
           setTheme,
@@ -251,11 +245,14 @@ describe("ScreenshotterWidget", () => {
     fireEvent.click(screen.getByTestId("action-button"));
 
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(2);
     });
+    expect(onSaved).toHaveBeenCalledTimes(2);
     expect(setTheme).toHaveBeenCalledWith("light");
     expect(setTheme).toHaveBeenCalledWith("dark");
     expect(theme).toBe("light");
+
+    downloads.restore();
   });
 
   it("keeps the panel hotkey inactive while typing in inputs", () => {
@@ -322,28 +319,30 @@ describe("ScreenshotterWidget", () => {
     });
   });
 
-  it("aborts inflight save requests on unmount and prevents duplicate captures", async () => {
-    mockPendingFetch();
+  it("prevents duplicate captures while a capture is in progress", async () => {
+    const downloads = setupDownloadMocks();
+    let resolveCanvas: (value: HTMLCanvasElement) => void = () => undefined;
+    const pendingCanvas = new Promise<HTMLCanvasElement>((resolve) => {
+      resolveCanvas = resolve;
+    });
+    html2canvasMock.mockImplementationOnce(() => pendingCanvas);
 
-    const { unmount } = render(<ScreenshotterWidget enabled captureSettleMs={0} />);
+    render(<ScreenshotterWidget enabled captureSettleMs={0} />);
     fireEvent.click(screen.getByTestId("screenshotter-launcher"));
     fireEvent.click(screen.getByTestId("mode-viewport"));
-
     fireEvent.click(screen.getByTestId("action-button"));
     fireEvent.click(screen.getByTestId("action-button"));
 
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(html2canvasMock).toHaveBeenCalledTimes(1);
     });
 
-    const call = vi.mocked(fetch).mock.calls[0];
-    const options = call?.[1] as RequestInit | undefined;
-    const signal = options?.signal as AbortSignal | undefined;
-    expect(signal).toBeTruthy();
-    expect(signal?.aborted).toBe(false);
+    resolveCanvas(createMockCanvas());
 
-    unmount();
+    await waitFor(() => {
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
+    });
 
-    expect(signal?.aborted).toBe(true);
+    downloads.restore();
   });
 });

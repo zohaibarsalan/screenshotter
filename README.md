@@ -1,165 +1,235 @@
-# Screenshotter
+# screenshotter
 
-Screenshotter is a TypeScript monorepo for local screenshot workflows in React apps.
+In-app screenshot capture for React applications.
 
-It ships three focused packages:
+`screenshotter` gives you a floating capture widget with element, viewport, and full-page modes.  
+Current package behavior is download-only, so setup is lightweight: one package and one config file.
 
-| Package | Purpose |
-| --- | --- |
-| `@screenshotter/widget` | In-app React capture widget (element, viewport, full page) |
-| `@screenshotter/server` | Local Node server that receives capture payloads and writes images |
-| `@screenshotter/protocol` | Shared payload types, validation helpers, and file naming utilities |
+## Table of Contents
 
-## Highlights
+- [Features](#features)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [Usage Patterns](#usage-patterns)
+- [Framework Guides](#framework-guides)
+- [API](#api)
+- [Configuration Reference](#configuration-reference)
+- [Callbacks and Result Shape](#callbacks-and-result-shape)
+- [Behavior Notes](#behavior-notes)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [License](#license)
 
-- Keyboard-driven widget (`Cmd/Ctrl + Shift + K`)
+## Features
+
+- Floating launcher UI with keyboard shortcut (`Cmd/Ctrl + Shift + K`)
 - Capture modes: `element`, `viewport`, `fullpage`
-- Output controls: `png`/`jpeg`, quality, scale, viewport presets
+- Output formats: `png` and `jpeg`
+- Adjustable quality and settle delay
 - Optional dual-theme capture (`current` or `both`)
-- Local-first server safety defaults (`127.0.0.1`, optional token, origin allowlist)
+- Download-first workflow with no local server dependency
+
+## Requirements
+
+- React `^18` or `^19`
+- React DOM `^18` or `^19`
+- Browser environment (DOM + Canvas APIs)
 
 ## Install
 
-### App consumers
-
 ```bash
-pnpm add @screenshotter/widget @screenshotter/server
+pnpm add screenshotter
 ```
 
-### Monorepo contributors
+## Quick Start
+
+Create `src/screenshotter.config.ts`:
+
+```ts
+import { defineScreenshotterConfig, mountScreenshotter } from "screenshotter";
+
+const config = defineScreenshotterConfig({
+  enabled: true,
+  project: "my-app",
+  captureSettleMs: 300,
+});
+
+mountScreenshotter(config);
+```
+
+Import it once in your app entrypoint:
+
+```ts
+import "./screenshotter.config";
+```
+
+That is enough to start capturing and downloading screenshots.
+
+## Usage Patterns
+
+### Pattern 1: Bootstrap Once (recommended)
+
+Use `mountScreenshotter(config)` in one bootstrap file and import it once.
+
+### Pattern 2: Manual React Mount
+
+```tsx
+import { ScreenshotterWidget } from "screenshotter";
+
+export function DevTools() {
+  return <ScreenshotterWidget enabled project="my-app" />;
+}
+```
+
+Use this when you prefer explicit placement inside existing React trees.
+
+## Framework Guides
+
+### React + Vite
+
+1. Add `src/screenshotter.config.ts` (Quick Start example).
+2. Import `./screenshotter.config` in `src/main.tsx`.
+
+### Next.js (App Router)
+
+Create a client bootstrap component:
+
+```tsx
+"use client";
+
+import { useEffect } from "react";
+import { defineScreenshotterConfig, mountScreenshotter } from "screenshotter";
+
+export function ScreenshotterBootstrap() {
+  useEffect(() => {
+    const unmount = mountScreenshotter(
+      defineScreenshotterConfig({
+        enabled: process.env.NODE_ENV === "development",
+        project: "my-app",
+      }),
+    );
+    return unmount;
+  }, []);
+
+  return null;
+}
+```
+
+Render `<ScreenshotterBootstrap />` once in a client boundary.
+
+### Remix
+
+Create `app/screenshotter.client.ts`:
+
+```ts
+import { defineScreenshotterConfig, mountScreenshotter } from "screenshotter";
+
+mountScreenshotter(
+  defineScreenshotterConfig({
+    enabled: true,
+    project: "my-app",
+  }),
+);
+```
+
+Import it once in `app/entry.client.tsx`.
+
+## API
+
+### Named Exports
+
+- `ScreenshotterWidget`
+- `mountScreenshotter(options)`
+- `defineScreenshotterConfig(config)`
+- `type ScreenshotterWidgetProps`
+- `type MountScreenshotterOptions`
+- Protocol re-exports: `CaptureMode`, `CaptureFormat`, `CapturePayload`, `SaveResult`, `ThemeSelection`, `ThemeValue`
+
+### `defineScreenshotterConfig(config)`
+
+Identity helper for typed config authoring.
+
+```ts
+const config = defineScreenshotterConfig({
+  enabled: true,
+  project: "app",
+});
+```
+
+### `mountScreenshotter(options)`
+
+Programmatically mounts the widget to `document.body`.
+
+```ts
+const unmount = mountScreenshotter({ enabled: true });
+```
+
+Returns a cleanup function:
+
+```ts
+unmount();
+```
+
+## Configuration Reference
+
+`mountScreenshotter(options)` accepts `MountScreenshotterOptions`, which extends `ScreenshotterWidgetProps` and adds `mountId`.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `boolean` | `NODE_ENV === "development"` | Enables/disables widget rendering. |
+| `project` | `string` | `"app"` | Included in capture payload metadata. |
+| `elementPaddingPx` | `number` | `8` | Extra padding around element captures. |
+| `captureSettleMs` | `number` | `700` | Wait time before each capture to let UI settle. |
+| `defaultMode` | `"element" \| "viewport" \| "fullpage"` | `"element"` | Initial capture mode. |
+| `themeSelectionDefault` | `"current" \| "both"` | `"current"` | Initial theme capture behavior. |
+| `themeAdapter` | `{ getCurrentTheme; setTheme }` | `undefined` | Required for `"both"` theme capture. |
+| `onSaved` | `(result) => void` | `undefined` | Called after each successful capture download. |
+| `onError` | `(message) => void` | `undefined` | Called when capture fails. |
+| `mountId` | `string` | `"screenshotter-root"` | DOM id used by `mountScreenshotter`. |
+
+## Callbacks and Result Shape
+
+### `onSaved(result)`
+
+`result` follows this structure:
+
+```ts
+interface SaveResult {
+  ok: true;
+  relativePath: string;
+  absolutePath: string;
+  bytes: number;
+}
+```
+
+In download-only mode, `relativePath` is the generated capture path pattern and `absolutePath` is the downloaded file name.
+
+### `onError(message)`
+
+Returns a user-facing error message string.
+
+## Behavior Notes
+
+- No backend transport is used in current package behavior.
+- Captures are created from DOM/canvas and downloaded in the browser.
+- For dual-theme capture (`themeSelectionDefault: "both"`), provide a `themeAdapter` that can read and set your app theme.
+
+## Troubleshooting
+
+- Widget not visible: set `enabled: true` explicitly and verify bootstrap import runs on the client.
+- Dual-theme option unavailable: provide `themeAdapter` with both `getCurrentTheme` and `setTheme`.
+- Download does not start: allow downloads/popups in browser settings.
+- Next.js hydration/client errors: mount from a client component (`"use client"`).
+
+## Development
 
 ```bash
 pnpm install
 pnpm run build
 pnpm run test
-```
-
-## Quick Start
-
-### 1. Start the local save server
-
-```js
-import { startScreenshotterServer } from "@screenshotter/server";
-
-const running = await startScreenshotterServer({
-  host: "127.0.0.1",
-  port: 4783,
-  outputRoot: "./screenshots",
-  token: "",
-  maxPayloadMB: 30,
-  allowOrigins: ["http://127.0.0.1:3000", "http://localhost:3000"],
-});
-
-console.log(`[screenshotter] running at ${running.url}`);
-```
-
-### 2. Mount the widget in your React app
-
-```tsx
-"use client";
-
-import { ScreenshotterWidget } from "@screenshotter/widget";
-
-export function DevScreenshotWidget() {
-  return (
-    <ScreenshotterWidget
-      endpoint="http://127.0.0.1:4783/api/captures"
-      project="my-app"
-    />
-  );
-}
-```
-
-## Saved File Layout
-
-Captures are written to:
-
-- Directory: `live-YYYYMMDD/<route-slug>/`
-- File: `<route>-<mode>-<surface>-<theme>-<YYYYMMDD-HHmmss>.<ext>`
-
-Example:
-
-```text
-screenshots/live-20260226/dashboard/dashboard-viewport-viewport-light-20260226-091501.png
-```
-
-## API Snapshot
-
-### `@screenshotter/widget`
-
-Main export:
-
-- `ScreenshotterWidget`
-
-Common props:
-
-- `endpoint?: string` default `http://127.0.0.1:4783/api/captures`
-- `project?: string` default `"app"`
-- `enabled?: boolean` default `NODE_ENV === "development"`
-- `defaultMode?: "element" | "viewport" | "fullpage"`
-- `themeSelectionDefault?: "current" | "both"`
-- `themeAdapter?: { getCurrentTheme; setTheme }` required for `"both"` capture
-
-### `@screenshotter/server`
-
-Exports:
-
-- `startScreenshotterServer(config)`
-- `loadServerConfigFromFile(filePath)`
-- `DEFAULT_SERVER_CONFIG`
-- `type ScreenshotterServerConfig`
-
-Endpoints:
-
-- `GET /api/health`
-- `POST /api/captures`
-
-### `@screenshotter/protocol`
-
-Exports:
-
-- `validateCapturePayload(input)`
-- `buildCaptureFileParts(payload)`
-- `clampQualityToScale(quality)`
-- shared types (`CapturePayload`, `SaveResult`, etc.)
-
-## Development
-
-```bash
-pnpm run build
-pnpm run test
 pnpm run release:check
 ```
-
-## Publishing
-
-1. Bump versions in `packages/*/package.json`.
-2. Authenticate with npm:
-
-```bash
-npm login
-npm whoami
-```
-
-3. Verify publish payload:
-
-```bash
-pnpm -r --filter "@screenshotter/*" pack --pack-destination /tmp
-```
-
-4. Publish:
-
-```bash
-pnpm run release:publish
-```
-
-If you intentionally publish from a dirty working tree, append `--no-git-checks`.
-
-## Security Notes
-
-- Server host is restricted to loopback (`127.0.0.1`, `localhost`, `::1`).
-- Use `token` for local environments that are not fully trusted.
-- Use `allowOrigins` to constrain browser requests.
 
 ## License
 

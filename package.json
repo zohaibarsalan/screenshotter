@@ -1,13 +1,13 @@
 {
-  "name": "screenshotter",
+  "name": "screenshotter-workspace",
   "version": "1.0.0",
   "private": true,
   "description": "Monorepo for Screenshotter protocol, widget, and local save server packages.",
   "scripts": {
-    "build": "pnpm -r --filter \"@screenshotter/*\" run build",
-    "test": "pnpm -r --filter \"@screenshotter/*\" run test",
-    "release:check": "pnpm run build && pnpm run test && pnpm -r --filter \"@screenshotter/*\" pack --pack-destination /tmp",
-    "release:publish": "pnpm -r --filter \"@screenshotter/*\" publish --access public"
+    "build": "pnpm -r --filter \"./packages/*\" run build",
+    "test": "pnpm -r --filter \"./packages/*\" run test",
+    "release:check": "pnpm run build && pnpm run test && pnpm -r --filter \"./packages/*\" pack --pack-destination /tmp",
+    "release:publish": "pnpm -r --filter \"./packages/*\" publish --access public"
   },
   "workspaces": [
     "packages/*"

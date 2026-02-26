@@ -6,7 +6,7 @@ This package provides:
 
 - runtime payload validation
 - deterministic capture file naming helpers
-- shared types used by `@screenshotter/widget` and `@screenshotter/server`
+- shared types used by `screenshotter`
 
 ## Install
 
