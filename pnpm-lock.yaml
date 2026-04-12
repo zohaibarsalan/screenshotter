@@ -49,9 +49,6 @@ importers:
 
   packages/widget:
     dependencies:
-      '@screenshotter/protocol':
-        specifier: workspace:*
-        version: link:../protocol
       html-to-image:
         specifier: ^1.11.13
         version: 1.11.13

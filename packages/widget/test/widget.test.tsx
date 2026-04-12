@@ -15,6 +15,8 @@ vi.mock("html-to-image", () => ({
 
 function createMockCanvas(): HTMLCanvasElement {
   return {
+    width: 320,
+    height: 180,
     toDataURL: (mime?: string) =>
       `data:${mime || "image/png"};base64,ZmFrZS1jYW52YXMtYnl0ZXM=`,
   } as unknown as HTMLCanvasElement;
@@ -129,6 +131,13 @@ describe("ScreenshotterWidget", () => {
     expect(onSaved).toHaveBeenCalledTimes(1);
     const saved = onSaved.mock.calls[0]?.[0];
     expect(saved?.relativePath).toContain("-element-");
+    expect(htmlToImageCanvasMock).toHaveBeenCalledTimes(1);
+    expect(htmlToImageCanvasMock.mock.calls[0]?.[0]).toBe(document.documentElement);
+    const htmlToImageOptions = htmlToImageCanvasMock.mock.calls[0]?.[1] as
+      | { filter?: (node: HTMLElement) => boolean }
+      | undefined;
+    expect(htmlToImageOptions?.filter?.({} as HTMLElement)).toBe(true);
+    expect(html2canvasMock).not.toHaveBeenCalled();
     expect(downloads.createObjectURLMock).toHaveBeenCalledTimes(1);
     expect(downloads.revokeObjectURLMock).toHaveBeenCalledTimes(1);
 
@@ -161,6 +170,25 @@ describe("ScreenshotterWidget", () => {
     downloads.restore();
   });
 
+  it("uses html-to-image first and falls back to html2canvas", async () => {
+    const downloads = setupDownloadMocks();
+    htmlToImageCanvasMock.mockRejectedValueOnce(new Error("HTML to image failed."));
+
+    render(<ScreenshotterWidget enabled captureSettleMs={0} />);
+    fireEvent.click(screen.getByTestId("screenshotter-launcher"));
+    fireEvent.click(screen.getByTestId("mode-viewport"));
+    fireEvent.click(screen.getByTestId("action-button"));
+
+    await waitFor(() => {
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
+    });
+
+    expect(htmlToImageCanvasMock).toHaveBeenCalledTimes(1);
+    expect(html2canvasMock).toHaveBeenCalledTimes(1);
+
+    downloads.restore();
+  });
+
   it("applies selected preset dimensions for viewport and fullpage capture", async () => {
     const downloads = setupDownloadMocks();
 
@@ -176,9 +204,9 @@ describe("ScreenshotterWidget", () => {
     await waitFor(() => {
       expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
     });
-    const viewportOptions = html2canvasMock.mock.calls[0]?.[1] as Record<string, unknown>;
+    const viewportOptions = htmlToImageCanvasMock.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(viewportOptions.width).toBe(393);
-    expect(viewportOptions.height).toBe(852);
+    expect(Number(viewportOptions.height)).toBeGreaterThanOrEqual(852);
 
     fireEvent.click(screen.getByTestId("mode-fullpage"));
     fireEvent.change(screen.getByTestId("capture-preset-select"), {
@@ -188,9 +216,84 @@ describe("ScreenshotterWidget", () => {
     await waitFor(() => {
       expect(downloads.clickSpy).toHaveBeenCalledTimes(2);
     });
-    const fullpageOptions = html2canvasMock.mock.calls[1]?.[1] as Record<string, unknown>;
-    expect(fullpageOptions.windowWidth).toBe(1512);
-    expect(fullpageOptions.windowHeight).toBe(982);
+    const fullpageOptions = htmlToImageCanvasMock.mock.calls[1]?.[1] as Record<string, unknown>;
+    expect(fullpageOptions.width).toBe(1512);
+    expect(Number(fullpageOptions.height)).toBeGreaterThanOrEqual(982);
+
+    downloads.restore();
+  });
+
+  it("uses mobile preset dimensions for viewport capture", async () => {
+    const downloads = setupDownloadMocks();
+
+    render(<ScreenshotterWidget enabled captureSettleMs={0} />);
+    fireEvent.click(screen.getByTestId("screenshotter-launcher"));
+    fireEvent.click(screen.getByRole("button", { name: /Advanced/i }));
+    fireEvent.click(screen.getByTestId("mode-viewport"));
+
+    fireEvent.change(screen.getByTestId("capture-preset-select"), {
+      target: { value: "pixel-8" },
+    });
+    fireEvent.click(screen.getByTestId("action-button"));
+
+    await waitFor(() => {
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
+    });
+
+    const viewportOptions = htmlToImageCanvasMock.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(viewportOptions.width).toBe(412);
+    expect(Number(viewportOptions.height)).toBeGreaterThanOrEqual(915);
+
+    downloads.restore();
+  });
+
+  it("retries with foreignObject rendering when primary render fails", async () => {
+    const downloads = setupDownloadMocks();
+    const oncloneSpy = vi.fn();
+
+    htmlToImageCanvasMock.mockRejectedValueOnce(new Error("HTML to image failed."));
+    html2canvasMock
+      .mockRejectedValueOnce(new Error("Primary render failed."))
+      .mockImplementationOnce(
+        async (_target: unknown, options: Record<string, unknown>) => {
+          const onclone = options.onclone as ((document: Document) => void) | undefined;
+          expect(options.foreignObjectRendering).toBe(true);
+          expect(onclone).toBeTypeOf("function");
+
+          const cloneDocument = document.implementation.createHTMLDocument("capture-clone");
+          const clonedRoot = cloneDocument.importNode(document.documentElement, true);
+          cloneDocument.replaceChild(clonedRoot, cloneDocument.documentElement);
+
+          onclone?.(cloneDocument);
+          oncloneSpy();
+
+          return createMockCanvas();
+        },
+      );
+
+    render(
+      <div>
+        <div data-testid="oklch-target" id="oklch-target" style={{ color: "oklch(65% 0.2 150)" }}>
+          Target
+        </div>
+        <ScreenshotterWidget enabled captureSettleMs={0} />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByTestId("screenshotter-launcher"));
+    fireEvent.click(screen.getByTestId("mode-viewport"));
+    fireEvent.click(screen.getByTestId("action-button"));
+
+    await waitFor(() => {
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
+    });
+
+    expect(oncloneSpy).toHaveBeenCalledTimes(1);
+    expect(html2canvasMock).toHaveBeenCalledTimes(2);
+    const primaryOptions = html2canvasMock.mock.calls[0]?.[1] as Record<string, unknown>;
+    const fallbackOptions = html2canvasMock.mock.calls[1]?.[1] as Record<string, unknown>;
+    expect(primaryOptions.foreignObjectRendering).toBe(false);
+    expect(fallbackOptions.foreignObjectRendering).toBe(true);
 
     downloads.restore();
   });
@@ -285,6 +388,7 @@ describe("ScreenshotterWidget", () => {
     expect(screen.queryByText("JPEG quality")).toBeNull();
     expect(screen.getByText("Padding")).toBeInTheDocument();
     expect(screen.queryByTestId("capture-preset-select")).toBeNull();
+    expect(screen.queryByTestId("capture-renderer-select")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Use JPEG format" }));
     expect(screen.getByText("JPEG quality")).toBeInTheDocument();
@@ -325,7 +429,7 @@ describe("ScreenshotterWidget", () => {
     const pendingCanvas = new Promise<HTMLCanvasElement>((resolve) => {
       resolveCanvas = resolve;
     });
-    html2canvasMock.mockImplementationOnce(() => pendingCanvas);
+    htmlToImageCanvasMock.mockImplementationOnce(() => pendingCanvas);
 
     render(<ScreenshotterWidget enabled captureSettleMs={0} />);
     fireEvent.click(screen.getByTestId("screenshotter-launcher"));
@@ -334,7 +438,7 @@ describe("ScreenshotterWidget", () => {
     fireEvent.click(screen.getByTestId("action-button"));
 
     await waitFor(() => {
-      expect(html2canvasMock).toHaveBeenCalledTimes(1);
+      expect(htmlToImageCanvasMock).toHaveBeenCalledTimes(1);
     });
 
     resolveCanvas(createMockCanvas());

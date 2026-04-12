@@ -1,13 +1,13 @@
 {
   "name": "screenshotter-workspace",
-  "version": "1.0.0",
+  "version": "0.1.13",
   "private": true,
-  "description": "Monorepo for Screenshotter protocol, widget, and local save server packages.",
+  "description": "Workspace for the @zohaibarsalan/screenshotter React capture widget.",
   "scripts": {
-    "build": "pnpm -r --filter \"./packages/*\" run build",
-    "test": "pnpm -r --filter \"./packages/*\" run test",
-    "release:check": "pnpm run build && pnpm run test && pnpm -r --filter \"./packages/*\" pack --pack-destination /tmp",
-    "release:publish": "pnpm -r --filter \"./packages/*\" publish --access public"
+    "build": "pnpm --filter @zohaibarsalan/screenshotter run build",
+    "test": "pnpm --filter @zohaibarsalan/screenshotter run test",
+    "release:check": "pnpm run build && pnpm run test && pnpm --filter @zohaibarsalan/screenshotter pack --pack-destination /tmp",
+    "release:publish": "npm publish ./packages/widget --access public"
   },
   "workspaces": [
     "packages/*"

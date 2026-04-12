@@ -1,10 +1,25 @@
-# Dependencies
+# Dependencies and package manager state
 node_modules/
-dist/
+.pnpm-store/
+.npm-cache/
+.npm/
+.yarn/
+.bun/
 
-# Local auth/session artifacts
+# Build and test output
+dist/
+coverage/
+*.tsbuildinfo
+
+# Package artifacts
+*.tgz
+*.zip
+
+# Local auth/session artifacts and capture config
 state*.json
 bearer*.json
+capture.config.json
+capture.widget.config.json
 
 # Browser/user profiles
 .pw-profile/
@@ -12,11 +27,6 @@ profiles/
 
 # Generated outputs
 screenshots/
-*.zip
-
-# Local capture config
-capture.config.json
-capture.widget.config.json
 
 # Environment/config secrets
 .env
@@ -27,9 +37,10 @@ capture.widget.config.json
 *.log
 npm-debug.log*
 pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # OS/editor noise
 .DS_Store
 .idea/
 .vscode/
-screenshots

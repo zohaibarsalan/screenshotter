@@ -62,10 +62,10 @@ describe("filename helpers", () => {
     expect(parts.surfaceSlug).toBe("status-filters");
     expect(parts.relativeDir).toBe("live-20260221/matter-health");
     expect(parts.fileName).toBe(
-      "matter-health-element-status-filters-light-20260221-132233.jpg",
+      "matter-health-element-status-filters-light-v2-20260221-132233.jpg",
     );
     expect(parts.relativePath).toBe(
-      "live-20260221/matter-health/matter-health-element-status-filters-light-20260221-132233.jpg",
+      "live-20260221/matter-health/matter-health-element-status-filters-light-v2-20260221-132233.jpg",
     );
   });
 

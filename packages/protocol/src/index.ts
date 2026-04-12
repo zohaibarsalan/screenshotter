@@ -146,7 +146,7 @@ export function buildCaptureFileParts(payload: {
   const dateStamp = formatDateStamp(usableDate);
   const timestamp = formatTimestamp(usableDate);
   const ext = payload.format === "jpeg" ? "jpg" : "png";
-  const fileName = `${routeSlug}-${payload.mode}-${surfaceSlug}-${payload.theme}-${timestamp}.${ext}`;
+  const fileName = `${routeSlug}-${payload.mode}-${surfaceSlug}-${payload.theme}-v2-${timestamp}.${ext}`;
   const relativeDir = `live-${dateStamp}/${routeSlug}`;
   const relativePath = `${relativeDir}/${fileName}`;
   return {

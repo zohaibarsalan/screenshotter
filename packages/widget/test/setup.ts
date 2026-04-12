@@ -24,6 +24,7 @@ if (typeof HTMLCanvasElement !== "undefined") {
     writable: true,
     value: () => ({
       drawImage: () => undefined,
+      fillRect: () => undefined,
     }),
   });
 

@@ -8,8 +8,6 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import html2canvas from "html2canvas-pro";
-import { toCanvas } from "html-to-image";
 import {
   buildCaptureFileParts,
   clampQualityToScale,
@@ -19,33 +17,15 @@ import {
   type SaveResult,
   type ThemeSelection,
   type ThemeValue,
-} from "@screenshotter/protocol";
+} from "./capture.js";
 
 const UI_MARKER_ATTR = "data-screenshotter-ui";
-const CAPTURE_COLOR_PROPERTIES = [
-  "color",
-  "background-color",
-  "background-image",
-  "border-top-color",
-  "border-right-color",
-  "border-bottom-color",
-  "border-left-color",
-  "outline-color",
-  "text-decoration-color",
-  "text-shadow",
-  "box-shadow",
-  "caret-color",
-  "fill",
-  "stroke",
-  "-webkit-text-fill-color",
-  "-webkit-text-stroke-color",
-] as const;
-
-type Html2CanvasOptions = NonNullable<Parameters<typeof html2canvas>[1]>;
-const OKLCH_LIKE_TOKEN_PATTERN = /\bokl(?:ab|ch)\([^)]*\)/gi;
-const CSS_NUMBER_PATTERN = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
-const OKL_TOKEN_CACHE = new Map<string, string>();
-let oklColorResolverElement: HTMLSpanElement | null = null;
+type Html2Canvas = typeof import("html2canvas-pro").default;
+type Html2CanvasOptions = NonNullable<Parameters<Html2Canvas>[1]>;
+type HtmlToImageToCanvas = typeof import("html-to-image").toCanvas;
+type HtmlToImageOptions = NonNullable<Parameters<HtmlToImageToCanvas>[1]>;
+let htmlToImageToCanvasPromise: Promise<HtmlToImageToCanvas> | null = null;
+let html2CanvasPromise: Promise<Html2Canvas> | null = null;
 const THEME_STORAGE_KEYS = [
   "vite-ui-theme",
   "theme",
@@ -191,6 +171,18 @@ const VIEWPORT_PRESETS_BY_GROUP: Record<ViewportPresetGroup, readonly ViewportPr
 };
 const STATUS_HIDE_DELAY_MS = 2600;
 
+function loadHtmlToImageToCanvas(): Promise<HtmlToImageToCanvas> {
+  htmlToImageToCanvasPromise ??= import("html-to-image").then(
+    (module) => module.toCanvas,
+  );
+  return htmlToImageToCanvasPromise;
+}
+
+function loadHtml2Canvas(): Promise<Html2Canvas> {
+  html2CanvasPromise ??= import("html2canvas-pro").then((module) => module.default);
+  return html2CanvasPromise;
+}
+
 const WIDGET_PANEL_CSS = `
 .ssw-root,
 .ssw-root * {
@@ -232,15 +224,15 @@ const WIDGET_PANEL_CSS = `
   --ui-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
-.ui-focus {
+.ssw-ui-focus {
   transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
 }
-.ui-focus:focus-visible {
+.ssw-ui-focus:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px hsl(var(--ui-ring)), 0 0 0 4px hsl(var(--ui-panel));
 }
 
-.ui-btn {
+.ssw-ui-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -257,53 +249,53 @@ const WIDGET_PANEL_CSS = `
     border-color 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out,
     filter 150ms ease-out;
 }
-.ui-btn:active {
+.ssw-ui-btn:active {
   transform: translateY(1px);
 }
-.ui-btn:disabled {
+.ssw-ui-btn:disabled {
   opacity: 0.42;
   cursor: not-allowed;
 }
 
-.ui-btn-primary {
+.ssw-ui-btn-primary {
   border: 1px solid hsl(var(--ui-border-strong));
   background: hsl(var(--ui-accent));
   color: hsl(var(--ui-accent-fg));
   box-shadow: 0 6px 14px rgba(2, 6, 23, 0.2);
 }
-.ui-btn-primary:hover:not(:disabled) {
+.ssw-ui-btn-primary:hover:not(:disabled) {
   background: hsl(var(--ui-accent-hover));
 }
-.ui-btn-primary:active:not(:disabled) {
+.ssw-ui-btn-primary:active:not(:disabled) {
   background: hsl(var(--ui-accent-pressed));
 }
 
-.ui-btn-outline {
+.ssw-ui-btn-outline {
   border: 1px solid hsl(var(--ui-border));
   background: hsl(var(--ui-panel-2) / 0.35);
   color: hsl(var(--ui-fg));
 }
-.ui-btn-outline:hover:not(:disabled) {
+.ssw-ui-btn-outline:hover:not(:disabled) {
   background: hsl(var(--ui-panel-2) / 0.5);
   border-color: hsl(var(--ui-border) / 0.82);
 }
 
-.ui-btn-ghost {
+.ssw-ui-btn-ghost {
   border: 1px solid transparent;
   background: transparent;
   color: hsl(var(--ui-fg));
 }
-.ui-btn-ghost:hover:not(:disabled) {
+.ssw-ui-btn-ghost:hover:not(:disabled) {
   background: hsl(var(--ui-panel-2) / 0.4);
 }
 
-.ui-btn-lg {
+.ssw-ui-btn-lg {
   height: 40px;
   padding: 0 18px;
   font-size: 14px;
 }
 
-.ui-panel {
+.ssw-ui-panel {
   border: 1px solid hsl(var(--ui-border));
   background: linear-gradient(
     180deg,
@@ -315,11 +307,11 @@ const WIDGET_PANEL_CSS = `
   backdrop-filter: blur(8px);
 }
 
-.ui-divider {
+.ssw-ui-divider {
   border-top: 1px solid hsl(var(--ui-border) / 0.7);
 }
 
-.ui-seg-row {
+.ssw-ui-seg-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
@@ -328,20 +320,20 @@ const WIDGET_PANEL_CSS = `
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.ui-toggle-group {
+.ssw-ui-toggle-group {
   border: 1px solid hsl(var(--ui-border));
   border-radius: 16px;
   padding: 4px;
   background: hsl(var(--ui-panel-2) / 0.2);
 }
-.ui-seg-item {
+.ssw-ui-seg-item {
   height: 44px;
   border-radius: 12px;
   border: 1px solid hsl(var(--ui-border) / 0.72);
   background: hsl(var(--ui-panel-2) / 0.22);
   color: hsl(var(--ui-muted));
 }
-.ui-seg-item[data-active="true"] {
+.ssw-ui-seg-item[data-active="true"] {
   border-color: hsl(var(--ui-accent));
   background: hsl(var(--ui-panel-2) / 0.62);
   color: hsl(var(--ui-fg));
@@ -350,23 +342,23 @@ const WIDGET_PANEL_CSS = `
     inset 0 0 0 1px hsl(var(--ui-accent) / 0.24),
     inset 0 1px 0 hsl(0 0% 100% / 0.05);
 }
-.ui-seg-item[data-active="true"]:hover:not(:disabled) {
+.ssw-ui-seg-item[data-active="true"]:hover:not(:disabled) {
   background: hsl(var(--ui-panel-2) / 0.7);
 }
-.ui-seg-item:disabled {
+.ssw-ui-seg-item:disabled {
   color: hsl(var(--ui-muted) / 0.5);
   border-color: hsl(var(--ui-border) / 0.3);
   background: hsl(var(--ui-panel-2) / 0.1);
   cursor: not-allowed;
 }
 
-.ui-range {
+.ssw-ui-range {
   display: flex;
   align-items: center;
   width: 100%;
   height: 36px;
 }
-.ui-range input[type="range"] {
+.ssw-ui-range input[type="range"] {
   --pct: 0%;
   -webkit-appearance: none;
   appearance: none;
@@ -383,7 +375,7 @@ const WIDGET_PANEL_CSS = `
   outline: none;
   transition: background-color 150ms ease-out;
 }
-.ui-range input[type="range"]::-webkit-slider-runnable-track {
+.ssw-ui-range input[type="range"]::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 999px;
   background: linear-gradient(
@@ -394,7 +386,7 @@ const WIDGET_PANEL_CSS = `
     hsl(var(--ui-border)) 100%
   );
 }
-.ui-range input[type="range"]::-webkit-slider-thumb {
+.ssw-ui-range input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 18px;
@@ -406,16 +398,16 @@ const WIDGET_PANEL_CSS = `
   box-shadow: 0 0 0 4px hsl(var(--ui-ring) / 0);
   transition: transform 150ms ease-out, box-shadow 150ms ease-out, filter 150ms ease-out;
 }
-.ui-range input[type="range"]:hover::-webkit-slider-thumb {
+.ssw-ui-range input[type="range"]:hover::-webkit-slider-thumb {
   filter: brightness(1.08);
 }
-.ui-range input[type="range"]:active::-webkit-slider-thumb {
+.ssw-ui-range input[type="range"]:active::-webkit-slider-thumb {
   transform: scale(0.98);
 }
-.ui-range input[type="range"]:focus-visible::-webkit-slider-thumb {
+.ssw-ui-range input[type="range"]:focus-visible::-webkit-slider-thumb {
   box-shadow: 0 0 0 4px hsl(var(--ui-ring) / 0.35);
 }
-.ui-range input[type="range"]::-moz-range-thumb {
+.ssw-ui-range input[type="range"]::-moz-range-thumb {
   width: 18px;
   height: 18px;
   border-radius: 999px;
@@ -424,15 +416,15 @@ const WIDGET_PANEL_CSS = `
   box-shadow: 0 0 0 4px hsl(var(--ui-ring) / 0);
   transition: transform 150ms ease-out, box-shadow 150ms ease-out, filter 150ms ease-out;
 }
-.ui-range input[type="range"]:focus-visible::-moz-range-thumb {
+.ssw-ui-range input[type="range"]:focus-visible::-moz-range-thumb {
   box-shadow: 0 0 0 4px hsl(var(--ui-ring) / 0.35);
 }
-.ui-range input[type="range"]::-moz-range-progress {
+.ssw-ui-range input[type="range"]::-moz-range-progress {
   height: 4px;
   border-radius: 999px;
   background: hsl(var(--ui-accent));
 }
-.ui-range input[type="range"]::-moz-range-track {
+.ssw-ui-range input[type="range"]::-moz-range-track {
   height: 4px;
   border-radius: 999px;
   background: hsl(var(--ui-border));
@@ -599,7 +591,7 @@ const WIDGET_PANEL_CSS = `
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
-.ssw-mini-segment .ui-seg-item {
+.ssw-mini-segment .ssw-ui-seg-item {
   height: 34px;
 }
 
@@ -723,18 +715,32 @@ function waitForMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function prepareImagesForCapture(sourceDocument: Document): void {
+  for (const image of Array.from(sourceDocument.images)) {
+    if (image.loading !== "eager") {
+      image.loading = "eager";
+    }
+    image.decoding = "sync";
+    if (!image.getAttribute("fetchpriority")) {
+      image.setAttribute("fetchpriority", "high");
+    }
+  }
+}
+
 async function waitForVisualAssetsReady(
   sourceDocument: Document,
   timeoutMs = 2500,
 ): Promise<void> {
+  prepareImagesForCapture(sourceDocument);
+
   const fontsPromise =
     "fonts" in sourceDocument
       ? (sourceDocument as Document & { fonts?: FontFaceSet }).fonts?.ready
       : undefined;
 
-  const imageDecodes = Array.from(sourceDocument.images)
-    .filter((image) => !image.complete)
-    .map((image) => image.decode().catch(() => undefined));
+  const imageDecodes = Array.from(sourceDocument.images).map((image) =>
+    image.decode().catch(() => undefined),
+  );
 
   await Promise.race([
     Promise.all([
@@ -957,6 +963,21 @@ function isTransparentColor(raw: string): boolean {
   return Number.isFinite(alpha) && alpha <= 0;
 }
 
+function resolveCaptureBackgroundColor(sourceDocument: Document): string {
+  const root = sourceDocument.documentElement;
+  const body = sourceDocument.body;
+  const candidates: Array<HTMLElement | null> = [body, root];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const computed = window.getComputedStyle(candidate);
+    const backgroundColor = computed.backgroundColor;
+    if (!isTransparentColor(backgroundColor)) {
+      return backgroundColor;
+    }
+  }
+  return "#ffffff";
+}
+
 function isPointInsideRect(x: number, y: number, rect: DOMRect): boolean {
   return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
@@ -1029,6 +1050,7 @@ function toFriendlyError(error: unknown): string {
 
 function isWidgetElement(element: Element | null): boolean {
   if (!element) return false;
+  if (typeof element.closest !== "function") return false;
   return element.closest(`[${UI_MARKER_ATTR}="true"]`) !== null;
 }
 
@@ -1115,6 +1137,7 @@ async function createPresetCaptureContext(
       frameHead.prepend(base);
     }
 
+    prepareImagesForCapture(frameDocument);
     await waitForMs(60);
     await waitForVisualAssetsReady(frameDocument, 3000);
 
@@ -1143,16 +1166,6 @@ function assertBrowser(): void {
   }
 }
 
-function hasUnsupportedColorFunction(value: string): boolean {
-  const normalized = value.toLowerCase();
-  return normalized.includes("oklch") || normalized.includes("oklab");
-}
-
-function isUnsupportedColorFunctionError(error: unknown): boolean {
-  const message = toFriendlyError(error).toLowerCase();
-  return message.includes("unsupported color function") && hasUnsupportedColorFunction(message);
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -1168,305 +1181,14 @@ function isAbortError(error: unknown): boolean {
   return message.includes("abort");
 }
 
-function parseCssNumber(raw: string): number | null {
-  const token = raw.trim();
-  if (!CSS_NUMBER_PATTERN.test(token)) return null;
-  const parsed = Number(token);
-  if (!Number.isFinite(parsed)) return null;
-  return parsed;
-}
-
-function parseAlpha(raw: string | null): number | null {
-  if (!raw) return 1;
-  const token = raw.trim().toLowerCase();
-  if (!token) return 1;
-  if (token.endsWith("%")) {
-    const numeric = parseCssNumber(token.slice(0, -1));
-    if (numeric === null) return null;
-    return clamp(numeric / 100, 0, 1);
+function prepareClonedDocumentForCapture(
+  clonedDocument: Document,
+): void {
+  const widgetNodes = clonedDocument.querySelectorAll(`[${UI_MARKER_ATTR}="true"]`);
+  for (const node of widgetNodes) {
+    node.remove();
   }
-  const numeric = parseCssNumber(token);
-  if (numeric === null) return null;
-  return clamp(numeric, 0, 1);
-}
-
-function parseHueDegrees(raw: string): number | null {
-  const token = raw.trim().toLowerCase();
-  if (!token || token === "none") return 0;
-
-  const parseUnitValue = (
-    suffix: string,
-    multiplier: number,
-  ): number | null => {
-    if (!token.endsWith(suffix)) return null;
-    const numeric = parseCssNumber(token.slice(0, -suffix.length));
-    if (numeric === null) return null;
-    return numeric * multiplier;
-  };
-
-  const unitValue =
-    parseUnitValue("deg", 1) ??
-    parseUnitValue("grad", 0.9) ??
-    parseUnitValue("rad", 180 / Math.PI) ??
-    parseUnitValue("turn", 360);
-  if (unitValue !== null) return unitValue;
-
-  return parseCssNumber(token);
-}
-
-function parseLightness(raw: string): number | null {
-  const token = raw.trim().toLowerCase();
-  if (!token) return null;
-  if (token.endsWith("%")) {
-    const numeric = parseCssNumber(token.slice(0, -1));
-    if (numeric === null) return null;
-    return clamp(numeric / 100, 0, 1);
-  }
-  const numeric = parseCssNumber(token);
-  if (numeric === null) return null;
-  return clamp(numeric, 0, 1);
-}
-
-function parseChroma(raw: string): number | null {
-  const token = raw.trim().toLowerCase();
-  if (!token) return null;
-  if (token.endsWith("%")) {
-    const numeric = parseCssNumber(token.slice(0, -1));
-    if (numeric === null) return null;
-    return Math.max(0, (numeric / 100) * 0.4);
-  }
-  const numeric = parseCssNumber(token);
-  if (numeric === null) return null;
-  return Math.max(0, numeric);
-}
-
-function parseOklabAxis(raw: string): number | null {
-  const token = raw.trim().toLowerCase();
-  if (!token) return null;
-  if (token.endsWith("%")) {
-    const numeric = parseCssNumber(token.slice(0, -1));
-    if (numeric === null) return null;
-    return (numeric / 100) * 0.4;
-  }
-  return parseCssNumber(token);
-}
-
-function splitFunctionBodyAndAlpha(body: string): {
-  channelsPart: string;
-  alphaPart: string | null;
-} {
-  let depth = 0;
-  for (let i = 0; i < body.length; i += 1) {
-    const ch = body[i];
-    if (ch === "(") depth += 1;
-    else if (ch === ")") depth = Math.max(0, depth - 1);
-    else if (ch === "/" && depth === 0) {
-      return {
-        channelsPart: body.slice(0, i).trim(),
-        alphaPart: body.slice(i + 1).trim(),
-      };
-    }
-  }
-  return {
-    channelsPart: body.trim(),
-    alphaPart: null,
-  };
-}
-
-function gammaEncodeSrgb(linear: number): number {
-  const abs = Math.abs(linear);
-  const encoded =
-    abs > 0.0031308
-      ? Math.sign(linear) * (1.055 * Math.pow(abs, 1 / 2.4) - 0.055)
-      : 12.92 * linear;
-  return clamp(encoded, 0, 1);
-}
-
-function oklabToSrgb(
-  lightness: number,
-  a: number,
-  b: number,
-): [number, number, number] {
-  const l = lightness + 0.3963377774 * a + 0.2158037573 * b;
-  const m = lightness - 0.1055613458 * a - 0.0638541728 * b;
-  const s = lightness - 0.0894841775 * a - 1.291485548 * b;
-
-  const l3 = l * l * l;
-  const m3 = m * m * m;
-  const s3 = s * s * s;
-
-  const redLinear = 4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
-  const greenLinear =
-    -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
-  const blueLinear =
-    -0.0041960863 * l3 - 0.7034186147 * m3 + 1.707614701 * s3;
-
-  return [
-    gammaEncodeSrgb(redLinear),
-    gammaEncodeSrgb(greenLinear),
-    gammaEncodeSrgb(blueLinear),
-  ];
-}
-
-function toRgbCssString(
-  red: number,
-  green: number,
-  blue: number,
-  alpha: number,
-): string {
-  const r255 = Math.round(clamp(red, 0, 1) * 255);
-  const g255 = Math.round(clamp(green, 0, 1) * 255);
-  const b255 = Math.round(clamp(blue, 0, 1) * 255);
-  if (alpha >= 1) {
-    return `rgb(${r255}, ${g255}, ${b255})`;
-  }
-  return `rgba(${r255}, ${g255}, ${b255}, ${Number(alpha.toFixed(4))})`;
-}
-
-function parseOklToken(
-  token: string,
-): { lightness: number; a: number; b: number; alpha: number } | null {
-  const match = token.trim().match(/^okl(ch|ab)\((.*)\)$/i);
-  if (!match) return null;
-  const type = match[1]?.toLowerCase();
-  const inner = match[2] ?? "";
-  if (!type || !inner.trim()) return null;
-
-  const { channelsPart, alphaPart } = splitFunctionBodyAndAlpha(inner);
-  const alpha = parseAlpha(alphaPart);
-  if (alpha === null) return null;
-  const tokens = channelsPart.split(/\s+/).filter(Boolean);
-  if (tokens.length !== 3) return null;
-
-  const lightness = parseLightness(tokens[0]);
-  if (lightness === null) return null;
-
-  if (type === "ab") {
-    const axisA = parseOklabAxis(tokens[1]);
-    const axisB = parseOklabAxis(tokens[2]);
-    if (axisA === null || axisB === null) return null;
-    return {
-      lightness,
-      a: axisA,
-      b: axisB,
-      alpha,
-    };
-  }
-
-  const chroma = parseChroma(tokens[1]);
-  const hue = parseHueDegrees(tokens[2]);
-  if (chroma === null || hue === null) return null;
-  const hueRadians = (hue * Math.PI) / 180;
-  return {
-    lightness,
-    a: chroma * Math.cos(hueRadians),
-    b: chroma * Math.sin(hueRadians),
-    alpha,
-  };
-}
-
-function getOklColorResolverElement(): HTMLSpanElement | null {
-  if (typeof document === "undefined") return null;
-  if (oklColorResolverElement?.isConnected) {
-    return oklColorResolverElement;
-  }
-  const host = document.body || document.documentElement;
-  if (!host) return null;
-  const resolver = document.createElement("span");
-  resolver.setAttribute(UI_MARKER_ATTR, "true");
-  resolver.setAttribute("aria-hidden", "true");
-  resolver.style.position = "fixed";
-  resolver.style.left = "-99999px";
-  resolver.style.top = "-99999px";
-  resolver.style.width = "0";
-  resolver.style.height = "0";
-  resolver.style.pointerEvents = "none";
-  resolver.style.opacity = "0";
-  host.appendChild(resolver);
-  oklColorResolverElement = resolver;
-  return resolver;
-}
-
-function resolveOklTokenWithBrowser(token: string): string | null {
-  const cached = OKL_TOKEN_CACHE.get(token);
-  if (cached) return cached;
-
-  const resolver = getOklColorResolverElement();
-  if (!resolver) return null;
-
-  resolver.style.color = "";
-  resolver.style.color = token;
-  if (!resolver.style.color) {
-    return null;
-  }
-
-  const resolved = window.getComputedStyle(resolver).color;
-  if (!resolved || hasUnsupportedColorFunction(resolved)) {
-    return null;
-  }
-  OKL_TOKEN_CACHE.set(token, resolved);
-  return resolved;
-}
-
-function normalizeOklColorToken(token: string): string {
-  const browserResolved = resolveOklTokenWithBrowser(token);
-  if (browserResolved) return browserResolved;
-
-  const parsed = parseOklToken(token);
-  if (!parsed) return token;
-  const [red, green, blue] = oklabToSrgb(parsed.lightness, parsed.a, parsed.b);
-  const fallback = toRgbCssString(red, green, blue, parsed.alpha);
-  OKL_TOKEN_CACHE.set(token, fallback);
-  return fallback;
-}
-
-function normalizeOklColorsInValue(value: string): string {
-  return value.replace(OKLCH_LIKE_TOKEN_PATTERN, (token) =>
-    normalizeOklColorToken(token),
-  );
-}
-
-function applyCaptureSafeComputedStyles(clonedDocument: Document): void {
-  if (!document.body || !clonedDocument.body) return;
-
-  const sourceNodes: HTMLElement[] = [
-    document.documentElement as HTMLElement,
-    document.body,
-    ...Array.from(document.body.querySelectorAll<HTMLElement>("*")),
-  ];
-  const clonedNodes: HTMLElement[] = [
-    clonedDocument.documentElement as HTMLElement,
-    clonedDocument.body,
-    ...Array.from(clonedDocument.body.querySelectorAll<HTMLElement>("*")),
-  ];
-
-  const total = Math.min(sourceNodes.length, clonedNodes.length);
-  for (let i = 0; i < total; i += 1) {
-    const source = sourceNodes[i];
-    const target = clonedNodes[i];
-    const computed = window.getComputedStyle(source);
-
-    for (const property of CAPTURE_COLOR_PROPERTIES) {
-      const value = computed.getPropertyValue(property);
-      if (!value) continue;
-      const nextValue = hasUnsupportedColorFunction(value)
-        ? normalizeOklColorsInValue(value)
-        : value;
-      target.style.setProperty(property, nextValue);
-    }
-
-    for (let index = 0; index < computed.length; index += 1) {
-      const property = computed.item(index);
-      if (!property) continue;
-      if (property.startsWith("--")) continue;
-      const value = computed.getPropertyValue(property);
-      if (!value || !hasUnsupportedColorFunction(value)) continue;
-      const nextValue = normalizeOklColorsInValue(value);
-      if (nextValue === value) continue;
-      const priority = computed.getPropertyPriority(property);
-      target.style.setProperty(property, nextValue, priority);
-    }
-  }
+  prepareImagesForCapture(clonedDocument);
 }
 
 function getViewportCrop(
@@ -1551,6 +1273,74 @@ function cropElementFromViewportCanvas(
   return cropCanvas(viewportCanvas, { sx, sy, sw, sh });
 }
 
+function getHtmlToImageRenderSize(
+  target: HTMLElement,
+  viewport: CaptureViewport,
+  sourceDocument: Document,
+): {
+  width: number;
+  height: number;
+} {
+  if (target !== sourceDocument.documentElement) {
+    const rect = target.getBoundingClientRect();
+    return {
+      width: Math.max(1, Math.ceil(rect.width || target.offsetWidth || 1)),
+      height: Math.max(1, Math.ceil(rect.height || target.offsetHeight || 1)),
+    };
+  }
+  return getFullPageRenderSize(viewport, sourceDocument);
+}
+
+async function renderWithHtmlToImage(
+  mode: CaptureMode,
+  target: HTMLElement,
+  scale: number,
+  ignoreElements: (element: Element) => boolean,
+  viewport: CaptureViewport,
+  sourceDocument: Document,
+  scroll: { x: number; y: number },
+): Promise<HTMLCanvasElement> {
+  const captureBackgroundColor = resolveCaptureBackgroundColor(sourceDocument);
+  const renderSize = getHtmlToImageRenderSize(
+    target,
+    viewport,
+    sourceDocument,
+  );
+  const options: HtmlToImageOptions = {
+    backgroundColor: captureBackgroundColor,
+    cacheBust: true,
+    filter: (node) => !ignoreElements(node),
+    includeQueryParams: true,
+    pixelRatio: scale,
+    preferredFontFormat: "woff2",
+    skipAutoScale: true,
+    width: renderSize.width,
+    height: renderSize.height,
+    canvasWidth: renderSize.width,
+    canvasHeight: renderSize.height,
+    style: {
+      width: `${renderSize.width}px`,
+      height: `${renderSize.height}px`,
+    },
+  };
+
+  const toCanvas = await loadHtmlToImageToCanvas();
+  const canvas = await toCanvas(target, options);
+  if (mode !== "viewport") {
+    return canvas;
+  }
+
+  const crop = getViewportCrop(
+    scale,
+    canvas.width,
+    canvas.height,
+    viewport,
+    scroll.x,
+    scroll.y,
+  );
+  return cropCanvas(canvas, crop);
+}
+
 async function renderWithHtml2Canvas(
   mode: CaptureMode,
   target: HTMLElement,
@@ -1560,8 +1350,9 @@ async function renderWithHtml2Canvas(
   sourceDocument: Document,
   scroll: { x: number; y: number },
 ): Promise<HTMLCanvasElement> {
+  const captureBackgroundColor = resolveCaptureBackgroundColor(sourceDocument);
   const commonOptions: Html2CanvasOptions = {
-    backgroundColor: null,
+    backgroundColor: captureBackgroundColor,
     logging: false,
     useCORS: true,
     scale,
@@ -1598,97 +1389,138 @@ async function renderWithHtml2Canvas(
     };
   }
 
-  const standardOptions: Html2CanvasOptions = {
+  const withClonePrep = (renderOptions: Html2CanvasOptions): Html2CanvasOptions => ({
+    ...renderOptions,
+    onclone: (clonedDocument) => {
+      try {
+        prepareClonedDocumentForCapture(clonedDocument);
+      } catch {
+        // Keep capture flow resilient even if clone prep fails.
+      }
+    },
+  });
+
+  const runAttempt = async (
+    renderOptions: Html2CanvasOptions,
+  ): Promise<HTMLCanvasElement> => {
+    const html2canvas = await loadHtml2Canvas();
+    return await html2canvas(target, renderOptions);
+  };
+
+  const primaryOptions = withClonePrep({
     ...options,
+    backgroundColor: captureBackgroundColor,
     foreignObjectRendering: false,
-  };
-  const foreignObjectOptions: Html2CanvasOptions = {
+  });
+  const fallbackOptions = withClonePrep({
     ...options,
+    backgroundColor: null,
     foreignObjectRendering: true,
-  };
-  const primaryOptions =
-    mode === "element" ? standardOptions : foreignObjectOptions;
-  const fallbackOptions =
-    mode === "element" ? foreignObjectOptions : standardOptions;
+  });
+
+  let primaryError: unknown;
+  try {
+    return await runAttempt(primaryOptions);
+  } catch (error) {
+    primaryError = error;
+  }
 
   try {
-    return await html2canvas(target, primaryOptions);
-  } catch (primaryError) {
-    try {
-      return await html2canvas(target, fallbackOptions);
-    } catch (fallbackError) {
-      if (
-        isUnsupportedColorFunctionError(primaryError) ||
-        isUnsupportedColorFunctionError(fallbackError)
-      ) {
-        throw new Error(
-          "Capture failed because unsupported color functions could not be normalized.",
-        );
-      }
-      throw fallbackError;
-    }
+    return await runAttempt(fallbackOptions);
+  } catch (fallbackError) {
+    throw fallbackError ?? primaryError ?? new Error("Capture failed.");
   }
 }
 
-async function renderWithHtmlToImageFallback(
+async function renderWithBestRenderer(
   mode: CaptureMode,
   target: HTMLElement,
   scale: number,
+  ignoreElements: (element: Element) => boolean,
   viewport: CaptureViewport,
   sourceDocument: Document,
   scroll: { x: number; y: number },
 ): Promise<HTMLCanvasElement> {
-  const filter = (node: HTMLElement): boolean => {
-    return !isWidgetElement(node);
-  };
+  try {
+    return await renderWithHtmlToImage(
+      mode,
+      target,
+      scale,
+      ignoreElements,
+      viewport,
+      sourceDocument,
+      scroll,
+    );
+  } catch {
+    return renderWithHtml2Canvas(
+      mode,
+      target,
+      scale,
+      ignoreElements,
+      viewport,
+      sourceDocument,
+      scroll,
+    );
+  }
+}
 
-  if (mode === "element") {
-    return toCanvas(target, {
-      cacheBust: true,
-      pixelRatio: scale,
-      filter,
-      backgroundColor: "transparent",
-    });
+async function renderElementCapture(
+  target: HTMLElement,
+  scale: number,
+  ignoreElements: (element: Element) => boolean,
+  viewport: CaptureViewport,
+  sourceDocument: Document,
+  scroll: { x: number; y: number },
+  paddingPx: number,
+): Promise<HTMLCanvasElement> {
+  try {
+    const viewportCanvas = await renderWithHtmlToImage(
+      "viewport",
+      sourceDocument.documentElement,
+      scale,
+      ignoreElements,
+      viewport,
+      sourceDocument,
+      scroll,
+    );
+    return cropElementFromViewportCanvas(
+      viewportCanvas,
+      target.getBoundingClientRect(),
+      scale,
+      paddingPx,
+    );
+  } catch {
+    // Fall through to the canvas renderer when SVG foreignObject rendering
+    // cannot preserve the current page.
   }
 
-  const doc = sourceDocument.documentElement;
-  const fullPage = getFullPageRenderSize(viewport, sourceDocument);
-  const fullWidth =
-    mode === "fullpage"
-      ? fullPage.width
-      : Math.max(Math.max(doc.scrollWidth, doc.clientWidth), viewport.width);
-  const fullHeight =
-    mode === "fullpage"
-      ? fullPage.height
-      : Math.max(Math.max(doc.scrollHeight, doc.clientHeight), viewport.height);
-  const fullCanvas = await toCanvas(doc, {
-    cacheBust: true,
-    pixelRatio: scale,
-    filter,
-    backgroundColor: "transparent",
-    width: fullWidth,
-    height: fullHeight,
-    canvasWidth: Math.max(1, Math.round(fullWidth * scale)),
-    canvasHeight: Math.max(1, Math.round(fullHeight * scale)),
-    style: {
-      width: `${fullWidth}px`,
-      height: `${fullHeight}px`,
-    },
-  });
-
-  if (mode === "fullpage") {
-    return fullCanvas;
+  try {
+    const viewportCanvas = await renderWithHtml2Canvas(
+      "viewport",
+      sourceDocument.documentElement,
+      scale,
+      ignoreElements,
+      viewport,
+      sourceDocument,
+      scroll,
+    );
+    return cropElementFromViewportCanvas(
+      viewportCanvas,
+      target.getBoundingClientRect(),
+      scale,
+      paddingPx,
+    );
+  } catch {
+    return renderWithHtml2Canvas(
+      "element",
+      target,
+      scale,
+      ignoreElements,
+      viewport,
+      sourceDocument,
+      scroll,
+    );
   }
-
-  const crop = getViewportCrop(
-    scale,
-    fullCanvas.width,
-    fullCanvas.height,
-    viewport,
-    scroll.x,
-    scroll.y,
-  );
-  return cropCanvas(fullCanvas, crop);
 }
 
 export function ScreenshotterWidget({
@@ -1732,7 +1564,6 @@ export function ScreenshotterWidget({
     readLiveViewport(),
   );
 
-  const rootRef = useRef<HTMLDivElement | null>(null);
   const isMountedRef = useRef(true);
   const isCaptureInFlightRef = useRef(false);
 
@@ -1804,7 +1635,7 @@ export function ScreenshotterWidget({
     });
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const legacyMedia = media as MediaQueryList & {
+    const mediaWithOldListeners = media as MediaQueryList & {
       addListener?: (listener: (event: MediaQueryListEvent) => void) => void;
       removeListener?: (listener: (event: MediaQueryListEvent) => void) => void;
     };
@@ -1816,7 +1647,7 @@ export function ScreenshotterWidget({
     if (typeof media.addEventListener === "function") {
       media.addEventListener("change", onMediaChange);
     } else {
-      legacyMedia.addListener?.(onMediaChange);
+      mediaWithOldListeners.addListener?.(onMediaChange);
     }
 
     return () => {
@@ -1825,7 +1656,7 @@ export function ScreenshotterWidget({
       if (typeof media.removeEventListener === "function") {
         media.removeEventListener("change", onMediaChange);
       } else {
-        legacyMedia.removeListener?.(onMediaChange);
+        mediaWithOldListeners.removeListener?.(onMediaChange);
       }
     };
   }, [isEnabled]);
@@ -1896,72 +1727,25 @@ export function ScreenshotterWidget({
         const ignoreElements = (element: Element): boolean => isWidgetElement(element);
         let canvas: HTMLCanvasElement;
         if (mode === "element" && selectedElement) {
-          const rect = selectedElement.getBoundingClientRect();
-          try {
-            const viewportCanvas = await renderWithHtml2Canvas(
-              "viewport",
-              captureDocument.documentElement,
-              scale,
-              ignoreElements,
-              live,
-              captureDocument,
-              { x: window.scrollX, y: window.scrollY },
-            );
-            canvas = cropElementFromViewportCanvas(
-              viewportCanvas,
-              rect,
-              scale,
-              safeElementPaddingPx,
-            );
-          } catch {
-            try {
-              const viewportCanvas = await renderWithHtmlToImageFallback(
-                "viewport",
-                captureDocument.documentElement,
-                scale,
-                live,
-                captureDocument,
-                { x: window.scrollX, y: window.scrollY },
-              );
-              canvas = cropElementFromViewportCanvas(
-                viewportCanvas,
-                rect,
-                scale,
-                safeElementPaddingPx,
-              );
-            } catch {
-              canvas = await renderWithHtml2Canvas(
-                mode,
-                captureTarget,
-                scale,
-                ignoreElements,
-                captureViewport,
-                captureDocument,
-                captureScroll,
-              );
-            }
-          }
+          canvas = await renderElementCapture(
+            captureTarget,
+            scale,
+            ignoreElements,
+            live,
+            captureDocument,
+            { x: window.scrollX, y: window.scrollY },
+            safeElementPaddingPx,
+          );
         } else {
-          try {
-            canvas = await renderWithHtml2Canvas(
-              mode,
-              captureTarget,
-              scale,
-              ignoreElements,
-              captureViewport,
-              captureDocument,
-              captureScroll,
-            );
-          } catch {
-            canvas = await renderWithHtmlToImageFallback(
-              mode,
-              captureTarget,
-              scale,
-              captureViewport,
-              captureDocument,
-              captureScroll,
-            );
-          }
+          canvas = await renderWithBestRenderer(
+            mode,
+            captureTarget,
+            scale,
+            ignoreElements,
+            captureViewport,
+            captureDocument,
+            captureScroll,
+          );
         }
         const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
         const encoded = canvas.toDataURL(
@@ -2273,7 +2057,6 @@ export function ScreenshotterWidget({
 
   return (
     <div
-      ref={rootRef}
       data-screenshotter-ui="true"
       data-ui-theme={uiTheme}
       className="ssw-root"
@@ -2292,7 +2075,7 @@ export function ScreenshotterWidget({
         type="button"
         data-testid="screenshotter-launcher"
         aria-label="Toggle screenshot panel"
-        className="ui-btn ui-btn-outline ui-focus ssw-launcher"
+        className="ssw-ui-btn ssw-ui-btn-outline ssw-ui-focus ssw-launcher"
         onClick={() => setIsPanelOpen((value) => !value)}
       >
         Shot
@@ -2301,7 +2084,7 @@ export function ScreenshotterWidget({
       <section
         data-testid="screenshotter-panel"
         aria-hidden={!isPanelOpen}
-        className="ui-panel ssw-panel"
+        className="ssw-ui-panel ssw-panel"
         data-open={isPanelOpen ? "true" : "false"}
       >
         <div className="ssw-header">
@@ -2313,7 +2096,7 @@ export function ScreenshotterWidget({
             <span className="ssw-hotkey">Cmd/Ctrl + Shift + K</span>
             <button
               type="button"
-              className="ui-btn ui-btn-ghost ui-focus ssw-icon-btn"
+              className="ssw-ui-btn ssw-ui-btn-ghost ssw-ui-focus ssw-icon-btn"
               aria-label="Close screenshot panel"
               onClick={() => setIsPanelOpen(false)}
             >
@@ -2325,8 +2108,8 @@ export function ScreenshotterWidget({
         <div className="ssw-body">
           <div className="ssw-group">
             <p className="ssw-group-title">Capture</p>
-            <div className="ui-toggle-group">
-              <div className="ui-seg-row">
+            <div className="ssw-ui-toggle-group">
+              <div className="ssw-ui-seg-row">
                 {CAPTURE_MODE_OPTIONS.map((value) => (
                   <button
                     key={value}
@@ -2335,7 +2118,7 @@ export function ScreenshotterWidget({
                     aria-label={`Switch to ${modeLabel(value)} mode`}
                     aria-pressed={mode === value}
                     data-active={mode === value ? "true" : "false"}
-                    className="ui-btn ui-btn-outline ui-focus ui-seg-item"
+                    className="ssw-ui-btn ssw-ui-btn-outline ssw-ui-focus ssw-ui-seg-item"
                     onClick={() => setMode(value)}
                   >
                     {modeLabel(value)}
@@ -2347,8 +2130,8 @@ export function ScreenshotterWidget({
 
           <div className="ssw-group">
             <p className="ssw-group-title">Output</p>
-            <div className="ui-toggle-group">
-              <div className="ui-seg-row ssw-output-row">
+            <div className="ssw-ui-toggle-group">
+              <div className="ssw-ui-seg-row ssw-output-row">
                 {FORMAT_OPTIONS.map((value) => (
                   <button
                     key={value}
@@ -2356,7 +2139,7 @@ export function ScreenshotterWidget({
                     aria-label={`Use ${value.toUpperCase()} format`}
                     aria-pressed={format === value}
                     data-active={format === value ? "true" : "false"}
-                    className="ui-btn ui-btn-outline ui-focus ui-seg-item"
+                    className="ssw-ui-btn ssw-ui-btn-outline ssw-ui-focus ssw-ui-seg-item"
                     onClick={() => setFormat(value)}
                   >
                     {value.toUpperCase()}
@@ -2370,7 +2153,7 @@ export function ScreenshotterWidget({
             <button
               type="button"
               aria-expanded={isAdvancedOpen}
-              className="ui-btn ui-btn-ghost ui-focus ssw-advanced-toggle"
+              className="ssw-ui-btn ssw-ui-btn-ghost ssw-ui-focus ssw-advanced-toggle"
               onClick={() => setIsAdvancedOpen((open) => !open)}
             >
               <span>Advanced</span>
@@ -2387,7 +2170,7 @@ export function ScreenshotterWidget({
                     </div>
                     <div>
                       <span className="ssw-setting-value">{quality}%</span>
-                      <div className="ui-range">
+                      <div className="ssw-ui-range">
                         <input
                           aria-label="JPEG quality"
                           type="range"
@@ -2410,7 +2193,7 @@ export function ScreenshotterWidget({
                     </div>
                     <div>
                       <span className="ssw-setting-value">{safeElementPaddingPx}px</span>
-                      <div className="ui-range">
+                      <div className="ssw-ui-range">
                         <input
                           aria-label="Element padding"
                           data-testid="element-padding"
@@ -2437,7 +2220,7 @@ export function ScreenshotterWidget({
                       <select
                         aria-label="Capture preset"
                         data-testid="capture-preset-select"
-                        className="ui-focus ssw-preset-select"
+                        className="ssw-ui-focus ssw-preset-select"
                         value={presetKey}
                         onChange={(event) => setPresetKey(event.currentTarget.value)}
                       >
@@ -2468,7 +2251,7 @@ export function ScreenshotterWidget({
                         : "Dual-theme capture unavailable"}
                     </p>
                   </div>
-                  <div className="ui-toggle-group">
+                  <div className="ssw-ui-toggle-group">
                     <div className="ssw-mini-segment">
                       {THEME_OPTIONS.map((value) => {
                         const disabled = value === "both" && !canCaptureBothThemes;
@@ -2480,7 +2263,7 @@ export function ScreenshotterWidget({
                             aria-label={`Set theme capture to ${value}`}
                             aria-pressed={active}
                             data-active={active ? "true" : "false"}
-                            className="ui-btn ui-btn-outline ui-focus ui-seg-item"
+                            className="ssw-ui-btn ssw-ui-btn-outline ssw-ui-focus ssw-ui-seg-item"
                             disabled={disabled}
                             onClick={() => setThemeSelection(value)}
                           >
@@ -2503,7 +2286,7 @@ export function ScreenshotterWidget({
               type="button"
               data-testid="action-button"
               aria-label={mode === "element" ? "Pick element to capture" : "Capture screenshot"}
-              className="ui-btn ui-btn-primary ui-focus ssw-action-btn"
+              className="ssw-ui-btn ssw-ui-btn-primary ssw-ui-focus ssw-action-btn"
               disabled={actionDisabled}
               onClick={() => {
                 if (mode === "element") {

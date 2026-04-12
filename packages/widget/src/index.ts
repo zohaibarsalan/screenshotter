@@ -17,4 +17,4 @@ export type {
   SaveResult,
   ThemeSelection,
   ThemeValue,
-} from "@screenshotter/protocol";
+} from "./capture.js";
