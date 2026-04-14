@@ -1,20 +1,41 @@
 # @zohaibarsalan/screenshotter
 
+[![npm version](https://img.shields.io/npm/v/@zohaibarsalan/screenshotter?color=0ea5e9)](https://www.npmjs.com/package/@zohaibarsalan/screenshotter)
+
 In-app screenshot capture for React apps.
 
 It runs in the browser, downloads captures directly, and does not require a separate capture service.
+
+NPM package: https://www.npmjs.com/package/@zohaibarsalan/screenshotter
 
 ## Status
 
 Beta.
 
-The package is usable for local product, UI, and QA workflows. Browser-only rendering still has known fidelity limits, but the install path, API, and current capture flow are ready for beta testing.
+The package is usable for local product, UI, and QA workflows. Browser-only rendering still has known fidelity limits, but the install path, configuration, and current capture flow are ready for beta testing.
 
 ## Install
 
 ```bash
 pnpm add @zohaibarsalan/screenshotter
 ```
+
+Other package managers:
+
+```bash
+npm i @zohaibarsalan/screenshotter
+yarn add @zohaibarsalan/screenshotter
+bun add @zohaibarsalan/screenshotter
+```
+
+## Package Size
+
+Current `0.2.0` npm package, checked with `npm pack --dry-run`:
+
+- Packed tarball: about `18 KB`
+- Unpacked install: about `76 KB`
+- Largest built file: about `64 KB`
+- Bundled dependencies: none
 
 ## Quick Start
 
@@ -96,7 +117,7 @@ See the repository README for full framework-specific snippets.
 
 ## Notes
 
-- Captures use DOM and Canvas APIs in the browser.
+- Captures use browser DOM and Canvas features.
 - Element capture renders the viewport context first, then crops the selected element.
 - `html-to-image` is lazy-loaded on capture; `html2canvas-pro` is lazy-loaded only for fallback rendering.
 - No network transport is used by the current package.

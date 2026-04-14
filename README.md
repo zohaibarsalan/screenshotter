@@ -1,14 +1,18 @@
 # @zohaibarsalan/screenshotter
 
+[![npm version](https://img.shields.io/npm/v/@zohaibarsalan/screenshotter?color=0ea5e9)](https://www.npmjs.com/package/@zohaibarsalan/screenshotter)
+
 In-app screenshot capture for React applications.
 
 `@zohaibarsalan/screenshotter` adds in-app screenshot capture to your React app. It supports element, viewport, and full-page capture, downloads files directly in the browser, and does not require a separate capture service.
+
+NPM package: https://www.npmjs.com/package/@zohaibarsalan/screenshotter
 
 ## Status
 
 Beta.
 
-The package is usable for local product, UI, and QA workflows. Browser-only screenshot rendering still has known fidelity limits, but the install path, API, and current capture flow are ready for beta testing. Capture renderers are lazy-loaded only when a screenshot starts: `html-to-image` runs first for better typography and CSS fidelity, then `html2canvas-pro` is loaded only if fallback rendering is needed.
+The package is usable for local product, UI, and QA workflows. Browser-only screenshot rendering still has known fidelity limits, but the install path, configuration, and current capture flow are ready for beta testing. Capture renderers are lazy-loaded only when a screenshot starts: `html-to-image` runs first for better typography and CSS fidelity, then `html2canvas-pro` is loaded only if fallback rendering is needed.
 
 ## Features
 
@@ -24,13 +28,30 @@ The package is usable for local product, UI, and QA workflows. Browser-only scre
 
 - React `^18` or `^19`
 - React DOM `^18` or `^19`
-- A browser runtime with DOM and Canvas APIs
+- A browser runtime with DOM and Canvas support
 
 ## Install
 
 ```bash
 pnpm add @zohaibarsalan/screenshotter
 ```
+
+Other package managers:
+
+```bash
+npm i @zohaibarsalan/screenshotter
+yarn add @zohaibarsalan/screenshotter
+bun add @zohaibarsalan/screenshotter
+```
+
+## Package Size
+
+Current `0.2.0` npm package, checked with `npm pack --dry-run`:
+
+- Packed tarball: about `18 KB`
+- Unpacked install: about `76 KB`
+- Largest built file: about `64 KB`
+- Bundled dependencies: none
 
 ## Quick Start
 
@@ -454,7 +475,7 @@ interface SaveResult {
 ## Behavior Notes
 
 - No network transport is used by the current package.
-- Captures are created from DOM and Canvas APIs in the browser.
+- Captures are created from browser DOM and Canvas features.
 - Capture lazy-loads `html-to-image` first and lazy-loads `html2canvas-pro` only when fallback rendering is needed.
 - Published package builds omit source maps to keep tarballs and installs smaller.
 - The package is marked `sideEffects: false` so app bundlers can tree-shake unused exports.
@@ -470,34 +491,40 @@ interface SaveResult {
 - Element crop has unexpected spacing: reduce `elementPaddingPx`, and prefer selecting a visual container instead of an inline child.
 - Both-theme capture unavailable: provide a `themeAdapter`.
 
-## Local Tarball Testing
+## Repository Layout
 
-From this repo:
+NPM users only install `@zohaibarsalan/screenshotter`.
+
+This repository still has three package folders because the project started with a local save-server workflow:
+
+| Folder | Status | Purpose |
+| --- | --- | --- |
+| `packages/widget` | Current | Source for the published `@zohaibarsalan/screenshotter` package. The folder name is historical. |
+| `packages/protocol` | Old | Shared payload helpers from the previous local-server workflow. Not used by the current npm package. |
+| `packages/server` | Old | Local save server from the previous workflow. Not used by the current npm package. |
+
+The published package contains only the built files from `packages/widget`. It does not publish or bundle `packages/protocol` or `packages/server`.
+
+## Maintainers
+
+Most users do not need this section.
+
+Run checks before publishing:
+
+```bash
+pnpm run release:check
+```
+
+Publish to npm:
+
+```bash
+npm publish ./packages/widget --access public
+```
+
+Optional local tarball test:
 
 ```bash
 pnpm --filter @zohaibarsalan/screenshotter pack --pack-destination /tmp
-```
-
-Install the generated tarball in another app:
-
-```bash
-pnpm add /tmp/zohaibarsalan-screenshotter-0.2.0.tgz
-```
-
-For Next.js apps, clear the dev cache after swapping tarballs:
-
-```bash
-rm -rf .next
-pnpm dev
-```
-
-## Development
-
-```bash
-pnpm install
-pnpm run build
-pnpm run test
-pnpm run release:check
 ```
 
 ## License
