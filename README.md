@@ -2,23 +2,23 @@
 
 In-app screenshot capture for React applications.
 
-`@zohaibarsalan/screenshotter` adds a floating capture widget to your app. It supports element, viewport, and full-page capture, downloads files directly in the browser, and does not require a backend service.
+`@zohaibarsalan/screenshotter` adds in-app screenshot capture to your React app. It supports element, viewport, and full-page capture, downloads files directly in the browser, and does not require a separate capture service.
 
 ## Status
 
-Alpha.
+Beta.
 
-The package is usable for local product, UI, and QA workflows, but browser-only screenshot rendering still has known fidelity limits. Capture renderers are lazy-loaded only when a screenshot starts: `html-to-image` runs first for better typography and CSS fidelity, then `html2canvas-pro` is loaded only if fallback rendering is needed.
+The package is usable for local product, UI, and QA workflows. Browser-only screenshot rendering still has known fidelity limits, but the install path, API, and current capture flow are ready for beta testing. Capture renderers are lazy-loaded only when a screenshot starts: `html-to-image` runs first for better typography and CSS fidelity, then `html2canvas-pro` is loaded only if fallback rendering is needed.
 
 ## Features
 
-- React widget
+- React capture UI
 - Browser download output
 - Element, viewport, and full-page capture
 - PNG and JPEG output
 - Optional dual-theme capture
 - Lazy capture renderer loading
-- No backend or Playwright process required
+- No extra capture process required
 
 ## Requirements
 
@@ -30,14 +30,6 @@ The package is usable for local product, UI, and QA workflows, but browser-only 
 
 ```bash
 pnpm add @zohaibarsalan/screenshotter
-```
-
-Other package managers:
-
-```bash
-npm install @zohaibarsalan/screenshotter
-yarn add @zohaibarsalan/screenshotter
-bun add @zohaibarsalan/screenshotter
 ```
 
 ## Quick Start
@@ -58,7 +50,7 @@ mountScreenshotter(
 );
 ```
 
-Open the floating widget from the bottom-right corner, or press `Cmd/Ctrl + Shift + K`.
+Open Screenshotter from the bottom-right corner, or press `Cmd/Ctrl + Shift + K`.
 
 ## Framework Guides
 
@@ -408,7 +400,7 @@ export function DevTools() {
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | `boolean` | `NODE_ENV === "development"` | Enables or disables the widget. |
+| `enabled` | `boolean` | `NODE_ENV === "development"` | Enables or disables Screenshotter. |
 | `project` | `string` | `"app"` | Project name included in capture metadata and file names. |
 | `elementPaddingPx` | `number` | `8` | Extra crop padding around element captures. |
 | `captureSettleMs` | `number` | `700` | Delay before capture so UI can settle. |
@@ -442,7 +434,7 @@ mountScreenshotter(
 
 ## Output
 
-The widget downloads files directly in the browser. File names are generated from the capture metadata:
+Screenshotter downloads files directly in the browser. File names are generated from the capture metadata:
 
 ```text
 live-YYYYMMDD/<route>/<route>-<mode>-<surface>-<theme>-v2-YYYYMMDD-HHMMSS.<format>
@@ -461,7 +453,7 @@ interface SaveResult {
 
 ## Behavior Notes
 
-- No backend transport is used by the current package.
+- No network transport is used by the current package.
 - Captures are created from DOM and Canvas APIs in the browser.
 - Capture lazy-loads `html-to-image` first and lazy-loads `html2canvas-pro` only when fallback rendering is needed.
 - Published package builds omit source maps to keep tarballs and installs smaller.
@@ -471,7 +463,7 @@ interface SaveResult {
 
 ## Troubleshooting
 
-- Widget not visible: set `enabled: true` and verify the bootstrap runs on the client.
+- Screenshotter not visible: set `enabled: true` and verify the bootstrap runs on the client.
 - Next.js hydration errors: mount from a client component with `"use client"`.
 - No download starts: allow browser downloads/popups for the site.
 - Fonts or icons differ: verify fonts are loaded before capture and avoid cross-origin font blocking.
@@ -489,7 +481,7 @@ pnpm --filter @zohaibarsalan/screenshotter pack --pack-destination /tmp
 Install the generated tarball in another app:
 
 ```bash
-pnpm add /tmp/zohaibarsalan-screenshotter-0.1.25.tgz
+pnpm add /tmp/zohaibarsalan-screenshotter-0.2.0.tgz
 ```
 
 For Next.js apps, clear the dev cache after swapping tarballs:

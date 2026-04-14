@@ -1,27 +1,19 @@
 # @zohaibarsalan/screenshotter
 
-Floating screenshot capture widget for React apps.
+In-app screenshot capture for React apps.
 
-It runs in the browser, downloads captures directly, and does not require a backend or Playwright process.
+It runs in the browser, downloads captures directly, and does not require a separate capture service.
 
 ## Status
 
-Alpha.
+Beta.
 
-The widget is usable for local product, UI, and QA workflows. Browser-only rendering still has known fidelity limits, so expect occasional differences from native browser screenshots.
+The package is usable for local product, UI, and QA workflows. Browser-only rendering still has known fidelity limits, but the install path, API, and current capture flow are ready for beta testing.
 
 ## Install
 
 ```bash
 pnpm add @zohaibarsalan/screenshotter
-```
-
-Other package managers:
-
-```bash
-npm install @zohaibarsalan/screenshotter
-yarn add @zohaibarsalan/screenshotter
-bun add @zohaibarsalan/screenshotter
 ```
 
 ## Quick Start
@@ -91,7 +83,7 @@ See the repository README for full framework-specific snippets.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | `boolean` | `NODE_ENV === "development"` | Enables or disables the widget. |
+| `enabled` | `boolean` | `NODE_ENV === "development"` | Enables or disables Screenshotter. |
 | `project` | `string` | `"app"` | Project name included in capture metadata and file names. |
 | `elementPaddingPx` | `number` | `8` | Extra crop padding around element captures. |
 | `captureSettleMs` | `number` | `700` | Delay before capture so UI can settle. |
@@ -107,7 +99,7 @@ See the repository README for full framework-specific snippets.
 - Captures use DOM and Canvas APIs in the browser.
 - Element capture renders the viewport context first, then crops the selected element.
 - `html-to-image` is lazy-loaded on capture; `html2canvas-pro` is lazy-loaded only for fallback rendering.
-- No backend transport is used by the current package.
+- No network transport is used by the current package.
 - Published builds omit source maps to keep the installed package smaller.
 - Cross-origin fonts/images, videos, iframes, canvas, and some advanced CSS can still differ from native screenshots.
 

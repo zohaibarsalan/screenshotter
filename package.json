@@ -2,7 +2,7 @@
   "name": "screenshotter-workspace",
   "version": "0.1.13",
   "private": true,
-  "description": "Workspace for the @zohaibarsalan/screenshotter React capture widget.",
+  "description": "Workspace for the @zohaibarsalan/screenshotter React capture package.",
   "scripts": {
     "build": "pnpm --filter @zohaibarsalan/screenshotter run build",
     "test": "pnpm --filter @zohaibarsalan/screenshotter run test",
@@ -16,7 +16,7 @@
     "screenshot",
     "react",
     "capture",
-    "widget"
+    "ui"
   ],
   "author": "",
   "license": "ISC",
