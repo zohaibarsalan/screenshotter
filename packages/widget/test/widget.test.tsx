@@ -87,9 +87,19 @@ describe("ScreenshotterWidget", () => {
 
     const panel = screen.getByTestId("screenshotter-panel");
     expect(panel).toHaveAttribute("aria-hidden", "true");
+    expect(panel).toHaveAttribute("inert");
+    expect(screen.getByTestId("screenshotter-launcher")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
 
     fireEvent.click(screen.getByTestId("screenshotter-launcher"));
     expect(panel).toHaveAttribute("aria-hidden", "false");
+    expect(panel).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("screenshotter-launcher")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
 
     const elementMode = screen.getByTestId("mode-element");
     expect(elementMode).toHaveAttribute("aria-pressed", "true");
@@ -118,6 +128,10 @@ describe("ScreenshotterWidget", () => {
 
     fireEvent.click(screen.getByTestId("screenshotter-launcher"));
     fireEvent.click(screen.getByTestId("action-button"));
+    expect(screen.getByTestId("screenshotter-panel")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
 
     const overlay = document.querySelector(
       "[data-testid='screenshotter-picker-overlay']",
@@ -462,6 +476,26 @@ describe("ScreenshotterWidget", () => {
     await waitFor(() => {
       expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
     });
+
+    downloads.restore();
+  });
+
+  it("announces capture status near the action", async () => {
+    const downloads = setupDownloadMocks();
+
+    render(<ScreenshotterWidget enabled captureSettleMs={0} />);
+    fireEvent.click(screen.getByTestId("screenshotter-launcher"));
+    fireEvent.click(screen.getByTestId("mode-viewport"));
+    fireEvent.click(screen.getByTestId("action-button"));
+
+    await waitFor(() => {
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.getAllByRole("status").some((node) => /saved/i.test(node.textContent ?? ""))).toBe(
+      true,
+    );
+    expect(screen.getByTestId("action-button")).toHaveAccessibleDescription(/saved/i);
 
     downloads.restore();
   });

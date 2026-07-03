@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -275,7 +276,7 @@ const WIDGET_PANEL_CSS = `
   border: 1px solid hsl(var(--ui-border-strong));
   background: hsl(var(--ui-accent));
   color: hsl(var(--ui-accent-fg));
-  box-shadow: 0 6px 14px rgba(2, 6, 23, 0.2);
+  box-shadow: 0 4px 10px rgba(2, 6, 23, 0.16);
 }
 .ssw-ui-btn-primary:hover:not(:disabled) {
   background: hsl(var(--ui-accent-hover));
@@ -311,14 +312,9 @@ const WIDGET_PANEL_CSS = `
 
 .ssw-ui-panel {
   border: 1px solid hsl(var(--ui-border));
-  background: linear-gradient(
-    180deg,
-    hsl(var(--ui-panel) / 0.95) 0%,
-    hsl(var(--ui-bg) / 0.93) 100%
-  );
+  background: hsl(var(--ui-panel));
   box-shadow: var(--ui-shadow);
-  border-radius: 18px;
-  backdrop-filter: blur(8px);
+  border-radius: 12px;
 }
 
 .ssw-ui-divider {
@@ -445,8 +441,8 @@ const WIDGET_PANEL_CSS = `
 }
 
 .ssw-launcher {
-  width: 68px;
-  height: 32px;
+  width: 44px;
+  height: 36px;
   border-radius: 999px;
   font-size: 11px;
   cursor: pointer;
@@ -456,7 +452,10 @@ const WIDGET_PANEL_CSS = `
   right: 0;
   bottom: 46px;
   width: 328px;
-  max-width: calc(100vw - 24px);
+  max-width: calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  max-height: calc(100dvh - 88px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  overflow: auto;
+  overscroll-behavior: contain;
   transform: translateY(8px);
   opacity: 0;
   pointer-events: none;
@@ -521,7 +520,7 @@ const WIDGET_PANEL_CSS = `
   font-weight: 600;
   color: hsl(var(--ui-muted));
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
 }
 
 .ssw-advanced-card {
@@ -666,6 +665,7 @@ const WIDGET_PANEL_CSS = `
   opacity: 1;
   transform: translateY(0);
   pointer-events: none;
+  overflow-wrap: anywhere;
 }
 .ssw-toast[data-kind="success"] {
   color: hsl(142 70% 76%);
@@ -682,7 +682,7 @@ const WIDGET_PANEL_CSS = `
 
 @media (max-width: 520px) {
   .ssw-panel {
-    width: min(328px, calc(100vw - 18px));
+    width: min(328px, calc(100vw - 18px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
   }
   .ssw-subtitle {
     display: none;
@@ -691,6 +691,38 @@ const WIDGET_PANEL_CSS = `
 @media (max-width: 760px) {
   .ssw-hotkey {
     display: none;
+  }
+}
+.ssw-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+.ssw-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ssw-root *,
+  .ssw-root *::before,
+  .ssw-root *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  .ssw-panel,
+  .ssw-ui-btn:active,
+  .ssw-chevron.is-open {
+    transform: none;
   }
 }
 `;
@@ -979,6 +1011,60 @@ function statusChipLabel(kind: StatusState["kind"]): string {
   if (kind === "error") return "Error";
   if (kind === "info") return "Picking...";
   return "Ready";
+}
+
+function CameraIcon() {
+  return (
+    <svg className="ssw-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M7.5 7.5 9 5.25h6l1.5 2.25h2.25A2.25 2.25 0 0 1 21 9.75v7.5a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 17.25v-7.5A2.25 2.25 0 0 1 5.25 7.5H7.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M8.75 13.25a3.25 3.25 0 1 0 6.5 0 3.25 3.25 0 0 0-6.5 0Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function ChevronDownIcon({ isOpen }: { isOpen: boolean }) {
+  return (
+    <svg
+      className={`ssw-icon ssw-chevron${isOpen ? " is-open" : ""}`}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path
+        d="m6 9 6 6 6-6"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg className="ssw-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="m6 6 12 12M18 6 6 18"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="2"
+      />
+    </svg>
+  );
 }
 
 function toSelectorName(element: HTMLElement): string {
@@ -2080,6 +2166,7 @@ export function ScreenshotterWidget({
     document.body.appendChild(overlay);
     document.body.appendChild(badge);
     let highlightedTarget: HTMLElement | null = null;
+    let didSelectTarget = false;
 
     const setTarget = (target: HTMLElement | null) => {
       if (!target || isWidgetElement(target)) {
@@ -2111,16 +2198,16 @@ export function ScreenshotterWidget({
       badge.textContent = toSelectorName(target);
     };
 
-    const onMouseMove = (event: MouseEvent) => {
+    const updateFromPoint = (clientX: number, clientY: number, eventTarget: EventTarget | null) => {
       const pointerTarget =
         typeof document.elementFromPoint === "function"
-          ? document.elementFromPoint(event.clientX, event.clientY)
+          ? document.elementFromPoint(clientX, clientY)
           : null;
       const rawTarget =
         pointerTarget instanceof HTMLElement
           ? pointerTarget
-          : event.target instanceof HTMLElement
-            ? event.target
+          : eventTarget instanceof HTMLElement
+            ? eventTarget
             : null;
       if (!rawTarget) {
         setTarget(null);
@@ -2130,33 +2217,79 @@ export function ScreenshotterWidget({
       setTarget(target);
     };
 
-    const onClick = (event: MouseEvent) => {
-      const rawTarget = event.target instanceof HTMLElement ? event.target : null;
+    const selectTargetFromPoint = (
+      clientX: number,
+      clientY: number,
+      eventTarget: EventTarget | null,
+    ): HTMLElement | null => {
+      const rawTarget = eventTarget instanceof HTMLElement ? eventTarget : null;
       let target: HTMLElement | null = null;
       if (highlightedTarget) {
         const rect = highlightedTarget.getBoundingClientRect();
-        if (isPointInsideRect(event.clientX, event.clientY, rect)) {
+        if (isPointInsideRect(clientX, clientY, rect)) {
           target = highlightedTarget;
         }
       }
       if (!target && rawTarget) {
         target = resolveElementCaptureTarget(rawTarget);
       }
+      return target && !isWidgetElement(target) ? target : null;
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      updateFromPoint(event.clientX, event.clientY, event.target);
+    };
+
+    const onMouseMove = (event: MouseEvent) => {
+      updateFromPoint(event.clientX, event.clientY, event.target);
+    };
+
+    const selectTarget = (target: HTMLElement | null) => {
       if (!target || isWidgetElement(target)) return;
-      event.preventDefault();
-      event.stopPropagation();
+      didSelectTarget = true;
       setTarget(null);
       setIsPickingElement(false);
       void executeCapture(target);
     };
 
+    const onPointerDown = (event: PointerEvent) => {
+      const target = selectTargetFromPoint(event.clientX, event.clientY, event.target);
+      if (!target) return;
+      event.preventDefault();
+      event.stopPropagation();
+      selectTarget(target);
+    };
+
+    const onClick = (event: MouseEvent) => {
+      if (didSelectTarget) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      const target = selectTargetFromPoint(event.clientX, event.clientY, event.target);
+      if (!target) return;
+      event.preventDefault();
+      event.stopPropagation();
+      selectTarget(target);
+    };
+
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setIsPickingElement(false);
-      setStatus({
-        kind: "info",
-        message: "Element picking canceled.",
-      });
+      if (event.key === "Escape") {
+        setIsPickingElement(false);
+        setStatus({
+          kind: "info",
+          message: "Element picking canceled.",
+        });
+        return;
+      }
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const activeElement =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const target = activeElement ? resolveElementCaptureTarget(activeElement) : null;
+      if (!target || isWidgetElement(target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      selectTarget(target);
     };
 
     setStatus({
@@ -2164,11 +2297,15 @@ export function ScreenshotterWidget({
       message: "Click an element to capture.",
     });
 
+    document.addEventListener("pointermove", onPointerMove, true);
+    document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("mousemove", onMouseMove, true);
     document.addEventListener("click", onClick, true);
     document.addEventListener("keydown", onKeyDown, true);
 
     return () => {
+      document.removeEventListener("pointermove", onPointerMove, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("mousemove", onMouseMove, true);
       document.removeEventListener("click", onClick, true);
       document.removeEventListener("keydown", onKeyDown, true);
@@ -2186,6 +2323,15 @@ export function ScreenshotterWidget({
   const currentStatusChipLabel = statusChipLabel(status.kind);
   const qualityPct = useMemo(() => ((quality - 1) / 99) * 100, [quality]);
   const paddingPct = useMemo(() => (safeElementPaddingPx / 32) * 100, [safeElementPaddingPx]);
+  const widgetId = useId();
+  const panelId = `${widgetId}-panel`;
+  const titleId = `${widgetId}-title`;
+  const captureGroupId = `${widgetId}-capture`;
+  const outputGroupId = `${widgetId}-output`;
+  const advancedBodyId = `${widgetId}-advanced`;
+  const themeGroupId = `${widgetId}-theme`;
+  const statusId = `${widgetId}-status`;
+  const isUiHidden = hideUiForCapture || isPickingElement;
 
   if (!isEnabled) return null;
 
@@ -2199,31 +2345,39 @@ export function ScreenshotterWidget({
         right: "calc(16px + env(safe-area-inset-right, 0px))",
         bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
         zIndex: 60,
-        opacity: hideUiForCapture ? 0 : 1,
-        pointerEvents: hideUiForCapture ? "none" : "auto",
+        opacity: isUiHidden ? 0 : 1,
+        pointerEvents: isUiHidden ? "none" : "auto",
         transition: "opacity 120ms ease-out",
       }}
+      aria-busy={isSaving ? "true" : undefined}
     >
       <style data-screenshotter-ui="true">{WIDGET_PANEL_CSS}</style>
       <button
         type="button"
         data-testid="screenshotter-launcher"
         aria-label="Toggle screenshot panel"
+        aria-controls={panelId}
+        aria-expanded={isPanelOpen}
         className="ssw-ui-btn ssw-ui-btn-outline ssw-ui-focus ssw-launcher"
         onClick={() => setIsPanelOpen((value) => !value)}
       >
-        Shot
+        <CameraIcon />
+        <span className="ssw-sr-only">Screenshotter</span>
       </button>
 
       <section
+        id={panelId}
         data-testid="screenshotter-panel"
         aria-hidden={!isPanelOpen}
+        aria-labelledby={titleId}
+        role="dialog"
         className="ssw-ui-panel ssw-panel"
         data-open={isPanelOpen ? "true" : "false"}
+        inert={!isPanelOpen}
       >
         <div className="ssw-header">
           <div>
-            <h3 className="ssw-title">Screenshotter</h3>
+            <h3 id={titleId} className="ssw-title">Screenshotter</h3>
             <p className="ssw-subtitle">Only what matters</p>
           </div>
           <div className="ssw-header-actions">
@@ -2234,15 +2388,15 @@ export function ScreenshotterWidget({
               aria-label="Close screenshot panel"
               onClick={() => setIsPanelOpen(false)}
             >
-              ×
+              <CloseIcon />
             </button>
           </div>
         </div>
 
         <div className="ssw-body">
           <div className="ssw-group">
-            <p className="ssw-group-title">Capture</p>
-            <div className="ssw-ui-toggle-group">
+            <p id={captureGroupId} className="ssw-group-title">Capture</p>
+            <div className="ssw-ui-toggle-group" role="group" aria-labelledby={captureGroupId}>
               <div className="ssw-ui-seg-row">
                 {CAPTURE_MODE_OPTIONS.map((value) => (
                   <button
@@ -2263,8 +2417,8 @@ export function ScreenshotterWidget({
           </div>
 
           <div className="ssw-group">
-            <p className="ssw-group-title">Output</p>
-            <div className="ssw-ui-toggle-group">
+            <p id={outputGroupId} className="ssw-group-title">Output</p>
+            <div className="ssw-ui-toggle-group" role="group" aria-labelledby={outputGroupId}>
               <div className="ssw-ui-seg-row ssw-output-row">
                 {FORMAT_OPTIONS.map((value) => (
                   <button
@@ -2287,15 +2441,16 @@ export function ScreenshotterWidget({
             <button
               type="button"
               aria-expanded={isAdvancedOpen}
+              aria-controls={advancedBodyId}
               className="ssw-ui-btn ssw-ui-btn-ghost ssw-ui-focus ssw-advanced-toggle"
               onClick={() => setIsAdvancedOpen((open) => !open)}
             >
               <span>Advanced</span>
-              <span className={`ssw-chevron${isAdvancedOpen ? " is-open" : ""}`}>▾</span>
+              <ChevronDownIcon isOpen={isAdvancedOpen} />
             </button>
 
             {isAdvancedOpen ? (
-              <div className="ssw-advanced-body">
+              <div id={advancedBodyId} className="ssw-advanced-body">
                 {format === "jpeg" ? (
                   <div className="ssw-setting">
                     <div>
@@ -2378,14 +2533,14 @@ export function ScreenshotterWidget({
 
                 <div className="ssw-setting">
                   <div>
-                    <p className="ssw-setting-label">Theme</p>
+                    <p id={themeGroupId} className="ssw-setting-label">Theme</p>
                     <p className="ssw-setting-help">
                       {canCaptureBothThemes
                         ? "Current or both themes"
                         : "Dual-theme capture unavailable"}
                     </p>
                   </div>
-                  <div className="ssw-ui-toggle-group">
+                  <div className="ssw-ui-toggle-group" role="group" aria-labelledby={themeGroupId}>
                     <div className="ssw-mini-segment">
                       {THEME_OPTIONS.map((value) => {
                         const disabled = value === "both" && !canCaptureBothThemes;
@@ -2413,18 +2568,26 @@ export function ScreenshotterWidget({
           </div>
 
           <div className="ssw-footer">
-            <span className="ssw-status-chip" data-kind={status.kind}>
+            <span
+              id={statusId}
+              className="ssw-status-chip"
+              data-kind={status.kind}
+              role="status"
+              aria-live="polite"
+            >
               {currentStatusChipLabel}
             </span>
             <button
               type="button"
               data-testid="action-button"
-              aria-label={mode === "element" ? "Pick element to capture" : "Capture screenshot"}
+              aria-label={currentActionLabel}
+              aria-describedby={statusId}
               className="ssw-ui-btn ssw-ui-btn-primary ssw-ui-focus ssw-action-btn"
               disabled={actionDisabled}
               onClick={() => {
                 if (mode === "element") {
                   setMode("element");
+                  setIsPanelOpen(false);
                   setIsPickingElement(true);
                   return;
                 }
@@ -2435,7 +2598,12 @@ export function ScreenshotterWidget({
             </button>
           </div>
           {isStatusToastVisible ? (
-            <p className="ssw-toast" data-kind={status.kind}>
+            <p
+              className="ssw-toast"
+              data-kind={status.kind}
+              role={status.kind === "error" ? "alert" : "status"}
+              aria-live={status.kind === "error" ? "assertive" : "polite"}
+            >
               {status.message}
             </p>
           ) : null}
