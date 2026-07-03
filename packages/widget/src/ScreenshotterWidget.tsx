@@ -50,6 +50,12 @@ const CAPTURE_MODE_OPTIONS: readonly CaptureMode[] = [
 ];
 const FORMAT_OPTIONS: readonly CaptureFormat[] = ["png", "jpeg"];
 const THEME_OPTIONS: readonly ThemeSelection[] = ["current", "both"];
+export type CaptureRenderer = "auto" | "html-to-image" | "html2canvas";
+const CAPTURE_RENDERER_OPTIONS: readonly CaptureRenderer[] = [
+  "auto",
+  "html-to-image",
+  "html2canvas",
+];
 type CaptureViewport = CapturePayload["viewport"];
 type ViewportPresetGroup = "phone" | "tablet" | "laptop" | "desktop";
 interface ViewportPreset {
@@ -740,6 +746,7 @@ export interface ScreenshotterWidgetProps {
   elementPaddingPx?: number;
   captureSettleMs?: number;
   defaultMode?: CaptureMode;
+  defaultRenderer?: CaptureRenderer;
   themeSelectionDefault?: ThemeSelection;
   themeAdapter?: {
     getCurrentTheme: () => ThemeValue;
@@ -957,6 +964,12 @@ function actionLabel(mode: CaptureMode, isPickingElement: boolean, isSaving: boo
     return isSaving ? "Capturing..." : "Capture viewport";
   }
   return isSaving ? "Capturing..." : "Capture full page";
+}
+
+function rendererLabel(renderer: CaptureRenderer): string {
+  if (renderer === "html-to-image") return "HTML to image";
+  if (renderer === "html2canvas") return "Canvas";
+  return "Auto";
 }
 
 function getViewportPreset(key: string): ViewportPreset | null {
@@ -1646,8 +1659,12 @@ async function renderWithBestRenderer(
   viewport: CaptureViewport,
   sourceDocument: Document,
   scroll: { x: number; y: number },
+  renderer: CaptureRenderer,
 ): Promise<HTMLCanvasElement> {
-  if (targetHasUnsupportedCaptureColors(target, sourceDocument)) {
+  if (
+    renderer === "html2canvas" ||
+    (renderer === "auto" && targetHasUnsupportedCaptureColors(target, sourceDocument))
+  ) {
     return renderWithHtml2Canvas(
       mode,
       target,
@@ -1690,8 +1707,13 @@ async function renderElementCapture(
   sourceDocument: Document,
   scroll: { x: number; y: number },
   paddingPx: number,
+  renderer: CaptureRenderer,
 ): Promise<HTMLCanvasElement> {
-  if (!targetHasUnsupportedCaptureColors(sourceDocument.documentElement, sourceDocument)) {
+  if (
+    renderer !== "html2canvas" &&
+    (renderer === "html-to-image" ||
+      !targetHasUnsupportedCaptureColors(sourceDocument.documentElement, sourceDocument))
+  ) {
     try {
       const viewportCanvas = await renderWithHtmlToImage(
         "viewport",
@@ -1749,6 +1771,7 @@ export function ScreenshotterWidget({
   elementPaddingPx = 8,
   captureSettleMs = 700,
   defaultMode = "element",
+  defaultRenderer = "auto",
   themeSelectionDefault = "current",
   themeAdapter,
   onSaved,
@@ -1761,6 +1784,7 @@ export function ScreenshotterWidget({
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [mode, setMode] = useState<CaptureMode>(defaultMode);
+  const [renderer, setRenderer] = useState<CaptureRenderer>(defaultRenderer);
   const [presetKey, setPresetKey] = useState<string>(LIVE_VIEWPORT_PRESET_KEY);
   const [format, setFormat] = useState<CaptureFormat>("png");
   const [quality, setQuality] = useState<number>(90);
@@ -1814,6 +1838,10 @@ export function ScreenshotterWidget({
   useEffect(() => {
     setElementPadding(normalizeElementPadding(elementPaddingPx));
   }, [elementPaddingPx]);
+
+  useEffect(() => {
+    setRenderer(defaultRenderer);
+  }, [defaultRenderer]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1955,6 +1983,7 @@ export function ScreenshotterWidget({
             captureDocument,
             { x: window.scrollX, y: window.scrollY },
             safeElementPaddingPx,
+            renderer,
           );
         } else {
           canvas = await renderWithBestRenderer(
@@ -1965,6 +1994,7 @@ export function ScreenshotterWidget({
             captureViewport,
             captureDocument,
             captureScroll,
+            renderer,
           );
         }
         const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
@@ -2010,6 +2040,7 @@ export function ScreenshotterWidget({
       presetKey,
       project,
       quality,
+      renderer,
       runIfMounted,
       safeElementPaddingPx,
       scale,
@@ -2329,6 +2360,7 @@ export function ScreenshotterWidget({
   const captureGroupId = `${widgetId}-capture`;
   const outputGroupId = `${widgetId}-output`;
   const advancedBodyId = `${widgetId}-advanced`;
+  const rendererSelectId = `${widgetId}-renderer`;
   const themeGroupId = `${widgetId}-theme`;
   const statusId = `${widgetId}-status`;
   const isUiHidden = hideUiForCapture || isPickingElement;
@@ -2530,6 +2562,34 @@ export function ScreenshotterWidget({
                     </div>
                   </div>
                 ) : null}
+
+                <div className="ssw-setting">
+                  <div>
+                    <p className="ssw-setting-label">Renderer</p>
+                    <p className="ssw-setting-help">Auto picks safest path</p>
+                  </div>
+                  <div>
+                    <select
+                      id={rendererSelectId}
+                      aria-label="Capture renderer"
+                      data-testid="capture-renderer-select"
+                      className="ssw-ui-focus ssw-preset-select"
+                      value={renderer}
+                      onChange={(event) =>
+                        setRenderer(event.currentTarget.value as CaptureRenderer)
+                      }
+                    >
+                      {CAPTURE_RENDERER_OPTIONS.map((value) => (
+                        <option key={value} value={value}>
+                          {rendererLabel(value)}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="ssw-setting-value ssw-setting-value-left">
+                      {rendererLabel(renderer)}
+                    </span>
+                  </div>
+                </div>
 
                 <div className="ssw-setting">
                   <div>

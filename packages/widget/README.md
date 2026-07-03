@@ -96,6 +96,7 @@ See the repository README for full framework-specific snippets.
 - `type CaptureMode`
 - `type CaptureFormat`
 - `type CapturePayload`
+- `type CaptureRenderer`
 - `type SaveResult`
 - `type ThemeSelection`
 - `type ThemeValue`
@@ -109,6 +110,7 @@ See the repository README for full framework-specific snippets.
 | `elementPaddingPx` | `number` | `8` | Extra crop padding around element captures. |
 | `captureSettleMs` | `number` | `700` | Delay before capture so UI can settle. |
 | `defaultMode` | `"element" \| "viewport" \| "fullpage"` | `"element"` | Initial capture mode. |
+| `defaultRenderer` | `"auto" \| "html-to-image" \| "html2canvas"` | `"auto"` | Initial renderer. Use `"html2canvas"` for difficult icon, font, or CSS color cases. |
 | `themeSelectionDefault` | `"current" \| "both"` | `"current"` | Initial theme capture behavior. |
 | `themeAdapter` | `{ getCurrentTheme; setTheme }` | `undefined` | Required for both-theme capture. |
 | `onSaved` | `(result) => void` | `undefined` | Called after a successful browser download. |
@@ -119,7 +121,7 @@ See the repository README for full framework-specific snippets.
 
 - Captures use browser DOM and Canvas features.
 - Element capture renders the viewport context first, then crops the selected element.
-- `html-to-image` is lazy-loaded on capture; `html2canvas-pro` is lazy-loaded only for fallback rendering.
+- `html-to-image` is lazy-loaded on capture; `html2canvas-pro` is lazy-loaded for fallback rendering or when Canvas is selected.
 - No network transport is used by the current package.
 - Published builds omit source maps to keep the installed package smaller.
 - Cross-origin fonts/images, videos, iframes, canvas, and some advanced CSS can still differ from native screenshots.

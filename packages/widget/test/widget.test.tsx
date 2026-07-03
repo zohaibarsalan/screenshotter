@@ -418,7 +418,7 @@ describe("ScreenshotterWidget", () => {
     expect(screen.queryByText("JPEG quality")).toBeNull();
     expect(screen.getByText("Padding")).toBeInTheDocument();
     expect(screen.queryByTestId("capture-preset-select")).toBeNull();
-    expect(screen.queryByTestId("capture-renderer-select")).toBeNull();
+    expect(screen.getByTestId("capture-renderer-select")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Use JPEG format" }));
     expect(screen.getByText("JPEG quality")).toBeInTheDocument();
@@ -427,6 +427,28 @@ describe("ScreenshotterWidget", () => {
     expect(screen.queryByText("Padding")).toBeNull();
     expect(screen.getByText("JPEG quality")).toBeInTheDocument();
     expect(screen.getByTestId("capture-preset-select")).toBeInTheDocument();
+  });
+
+  it("can force the canvas renderer for difficult pages", async () => {
+    const downloads = setupDownloadMocks();
+
+    render(<ScreenshotterWidget enabled captureSettleMs={0} />);
+    fireEvent.click(screen.getByTestId("screenshotter-launcher"));
+    fireEvent.click(screen.getByRole("button", { name: /Advanced/i }));
+    fireEvent.change(screen.getByTestId("capture-renderer-select"), {
+      target: { value: "html2canvas" },
+    });
+    fireEvent.click(screen.getByTestId("mode-viewport"));
+    fireEvent.click(screen.getByTestId("action-button"));
+
+    await waitFor(() => {
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
+    });
+
+    expect(htmlToImageCanvasMock).not.toHaveBeenCalled();
+    expect(html2canvasMock).toHaveBeenCalledTimes(1);
+
+    downloads.restore();
   });
 
   it("cancels element picker overlay on escape", async () => {

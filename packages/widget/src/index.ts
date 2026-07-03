@@ -1,5 +1,6 @@
 export {
   ScreenshotterWidget,
+  type CaptureRenderer,
   type ScreenshotterWidgetProps,
 } from "./ScreenshotterWidget.js";
 export {

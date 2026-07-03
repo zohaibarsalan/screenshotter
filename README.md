@@ -12,7 +12,7 @@ NPM package: https://www.npmjs.com/package/@zohaibarsalan/screenshotter
 
 Beta.
 
-The package is usable for local product, UI, and QA workflows. Browser-only screenshot rendering still has known fidelity limits, but the install path, configuration, and current capture flow are ready for beta testing. Capture renderers are lazy-loaded only when a screenshot starts: `html-to-image` runs first for better typography and CSS fidelity, then `html2canvas-pro` is loaded only if fallback rendering is needed.
+The package is usable for local product, UI, and QA workflows. Browser-only screenshot rendering still has known fidelity limits, but the install path, configuration, and current capture flow are ready for beta testing. Capture renderers are lazy-loaded only when a screenshot starts: `html-to-image` runs first for better typography and CSS fidelity, while `html2canvas-pro` is used for fallback, CSS Color 4 preflight, or a forced Canvas render.
 
 ## Features
 
@@ -426,6 +426,7 @@ export function DevTools() {
 | `elementPaddingPx` | `number` | `8` | Extra crop padding around element captures. |
 | `captureSettleMs` | `number` | `700` | Delay before capture so UI can settle. |
 | `defaultMode` | `"element" \| "viewport" \| "fullpage"` | `"element"` | Initial capture mode. |
+| `defaultRenderer` | `"auto" \| "html-to-image" \| "html2canvas"` | `"auto"` | Initial renderer. Use `"html2canvas"` when a page has stubborn icon, font, or CSS color rendering issues. |
 | `themeSelectionDefault` | `"current" \| "both"` | `"current"` | Initial theme capture behavior. |
 | `themeAdapter` | `{ getCurrentTheme; setTheme }` | `undefined` | Required for both-theme capture. |
 | `onSaved` | `(result) => void` | `undefined` | Called after a successful browser download. |
@@ -476,7 +477,7 @@ interface SaveResult {
 
 - No network transport is used by the current package.
 - Captures are created from browser DOM and Canvas features.
-- Capture lazy-loads `html-to-image` first and lazy-loads `html2canvas-pro` only when fallback rendering is needed.
+- Capture lazy-loads `html-to-image` first, but routes known CSS Color 4 cases through `html2canvas-pro`; the Advanced panel can force either renderer.
 - Published package builds omit source maps to keep tarballs and installs smaller.
 - The package is marked `sideEffects: false` so app bundlers can tree-shake unused exports.
 - Element capture renders the viewport context first, then crops the selected element so layout spacing is preserved better.
@@ -487,7 +488,7 @@ interface SaveResult {
 - Screenshotter not visible: set `enabled: true` and verify the bootstrap runs on the client.
 - Next.js hydration errors: mount from a client component with `"use client"`.
 - No download starts: allow browser downloads/popups for the site.
-- Fonts or icons differ: verify fonts are loaded before capture and avoid cross-origin font blocking.
+- Fonts or icons differ: verify fonts are loaded before capture, avoid cross-origin font blocking, or force the Canvas renderer in Advanced.
 - Element crop has unexpected spacing: reduce `elementPaddingPx`, and prefer selecting a visual container instead of an inline child.
 - Both-theme capture unavailable: provide a `themeAdapter`.
 

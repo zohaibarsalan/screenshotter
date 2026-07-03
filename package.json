@@ -4,8 +4,10 @@
   "private": true,
   "description": "Workspace for the @zohaibarsalan/screenshotter React capture package.",
   "scripts": {
-    "build": "pnpm --filter @zohaibarsalan/screenshotter run build",
-    "test": "pnpm --filter @zohaibarsalan/screenshotter run test",
+    "build": "pnpm -r --workspace-concurrency=1 run build",
+    "build:widget": "pnpm --filter @zohaibarsalan/screenshotter run build",
+    "test": "pnpm -r --workspace-concurrency=1 run test",
+    "test:widget": "pnpm --filter @zohaibarsalan/screenshotter run test",
     "release:check": "pnpm run build && pnpm run test && pnpm --filter @zohaibarsalan/screenshotter pack --pack-destination /tmp",
     "release:publish": "npm publish ./packages/widget --access public"
   },
