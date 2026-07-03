@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import {
   buildCaptureFileParts,
   validateCapturePayload,
+  type CaptureFormat,
   type SaveResult,
 } from "@screenshotter/protocol";
 import {
@@ -36,10 +37,58 @@ function jsonResponse(
   response.end(body);
 }
 
-function normalizeImageBase64(raw: string): string {
-  if (!raw.includes(",")) return raw;
-  const parts = raw.split(",");
-  return parts[parts.length - 1] || "";
+function parseImageBase64(raw: string, format: CaptureFormat): string {
+  const trimmed = raw.trim();
+  const dataUrlMatch = trimmed.match(/^data:([^;,]+);base64,(.*)$/is);
+  if (!dataUrlMatch) return trimmed;
+
+  const mediaType = dataUrlMatch[1]?.toLowerCase();
+  const expectedMediaType = format === "jpeg" ? "image/jpeg" : "image/png";
+  if (mediaType !== expectedMediaType) {
+    throw new Error(`imageBase64 data URL must use ${expectedMediaType}.`);
+  }
+  return dataUrlMatch[2] ?? "";
+}
+
+function decodeStrictBase64(raw: string): Buffer {
+  const normalized = raw.replace(/\s+/g, "");
+  if (!normalized || normalized.length % 4 !== 0) {
+    throw new Error("imageBase64 must be valid base64.");
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalized) || /=/.test(normalized.slice(0, -2))) {
+    throw new Error("imageBase64 must be valid base64.");
+  }
+  const bytes = Buffer.from(normalized, "base64");
+  if (!bytes.length || bytes.toString("base64") !== normalized) {
+    throw new Error("imageBase64 must be valid base64.");
+  }
+  return bytes;
+}
+
+function hasExpectedImageSignature(bytes: Buffer, format: CaptureFormat): boolean {
+  if (format === "png") {
+    return (
+      bytes.length >= 8 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47 &&
+      bytes[4] === 0x0d &&
+      bytes[5] === 0x0a &&
+      bytes[6] === 0x1a &&
+      bytes[7] === 0x0a
+    );
+  }
+  return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+}
+
+function decodeCaptureImage(raw: string, format: CaptureFormat): Buffer {
+  const base64 = parseImageBase64(raw, format);
+  const bytes = decodeStrictBase64(base64);
+  if (!hasExpectedImageSignature(bytes, format)) {
+    throw new Error(`imageBase64 must contain a valid ${format.toUpperCase()} image.`);
+  }
+  return bytes;
 }
 
 function ensureAllowedOrigin(
@@ -57,8 +106,53 @@ function ensureAllowedOrigin(
 }
 
 function buildAbsolutePath(relativePath: string, outputRoot: string): string {
+  if (!outputRoot.trim()) {
+    throw new Error("outputRoot must be a non-empty path.");
+  }
   const resolvedRoot = path.resolve(outputRoot);
-  return path.resolve(resolvedRoot, relativePath);
+  const absolutePath = path.resolve(resolvedRoot, relativePath);
+  const relativeToRoot = path.relative(resolvedRoot, absolutePath);
+  if (
+    !relativeToRoot ||
+    relativeToRoot.startsWith("..") ||
+    path.isAbsolute(relativeToRoot)
+  ) {
+    throw new Error("Capture path must stay inside outputRoot.");
+  }
+  return absolutePath;
+}
+
+function addCollisionSuffix(filePath: string, attempt: number): string {
+  const extension = path.extname(filePath);
+  const withoutExtension = filePath.slice(0, filePath.length - extension.length);
+  return `${withoutExtension}-${attempt + 1}${extension}`;
+}
+
+async function writeCaptureFile(
+  absolutePath: string,
+  bytes: Buffer,
+): Promise<string> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const candidate = attempt === 0 ? absolutePath : addCollisionSuffix(absolutePath, attempt);
+    try {
+      await fs.writeFile(candidate, bytes, { flag: "wx" });
+      return candidate;
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error as NodeJS.ErrnoException).code === "EEXIST"
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Could not allocate a unique capture filename.");
+}
+
+function toPosixRelativePath(outputRoot: string, absolutePath: string): string {
+  return path.relative(path.resolve(outputRoot), absolutePath).split(path.sep).join("/");
 }
 
 async function readJsonBody(
@@ -175,23 +269,13 @@ export async function startScreenshotterServer(
       const absoluteDir = path.dirname(absolutePath);
       await fs.mkdir(absoluteDir, { recursive: true });
 
-      const normalized = normalizeImageBase64(payload.imageBase64);
-      const bytes = Buffer.from(normalized, "base64");
-      if (!bytes.length) {
-        jsonResponse(
-          response,
-          400,
-          { ok: false, error: "imageBase64 could not be decoded." },
-          responseOrigin,
-        );
-        return;
-      }
-      await fs.writeFile(absolutePath, bytes);
+      const bytes = decodeCaptureImage(payload.imageBase64, payload.format);
+      const writtenPath = await writeCaptureFile(absolutePath, bytes);
 
       const result: SaveResult = {
         ok: true,
-        relativePath: parts.relativePath,
-        absolutePath,
+        relativePath: toPosixRelativePath(config.outputRoot, writtenPath),
+        absolutePath: writtenPath,
         bytes: bytes.byteLength,
       };
       jsonResponse(response, 200, result, responseOrigin);

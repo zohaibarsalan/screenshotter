@@ -53,6 +53,27 @@ describe("validateCapturePayload", () => {
     if (result.ok) return;
     expect(result.error).toContain("selector");
   });
+
+  it("rejects unbounded metadata and viewport values", () => {
+    const routeResult = validateCapturePayload(makePayload({ route: `/${"a".repeat(1100)}` }));
+    expect(routeResult.ok).toBe(false);
+    if (routeResult.ok) return;
+    expect(routeResult.error).toContain("route");
+
+    const viewportResult = validateCapturePayload(
+      makePayload({ viewport: { width: 50000, height: 900, dpr: 2 } }),
+    );
+    expect(viewportResult.ok).toBe(false);
+    if (viewportResult.ok) return;
+    expect(viewportResult.error).toContain("viewport.width");
+  });
+
+  it("requires capturedAt to be an ISO timestamp with timezone", () => {
+    const result = validateCapturePayload(makePayload({ capturedAt: "2026-02-21 13:22:33" }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("ISO timestamp");
+  });
 });
 
 describe("filename helpers", () => {

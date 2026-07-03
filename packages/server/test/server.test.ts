@@ -70,6 +70,90 @@ describe("startScreenshotterServer", () => {
     expect(bytes.byteLength).toBeGreaterThan(0);
   });
 
+  it("does not overwrite captures with identical generated names", async () => {
+    const outputRoot = await fs.mkdtemp(path.join(os.tmpdir(), "screenshotter-"));
+    const running = await startScreenshotterServer({
+      host: "127.0.0.1",
+      port: 0,
+      outputRoot,
+      allowOrigins: [],
+    });
+    runningServers.push(running);
+
+    const payload = makePayload();
+    const first = await fetch(`${running.url}/api/captures`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const second = await fetch(`${running.url}/api/captures`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const firstBody = await first.json();
+    const secondBody = await second.json();
+    expect(firstBody.absolutePath).not.toBe(secondBody.absolutePath);
+    await expect(fs.stat(firstBody.absolutePath)).resolves.toBeTruthy();
+    await expect(fs.stat(secondBody.absolutePath)).resolves.toBeTruthy();
+  });
+
+  it("rejects corrupt base64 and mismatched image formats", async () => {
+    const outputRoot = await fs.mkdtemp(path.join(os.tmpdir(), "screenshotter-"));
+    const running = await startScreenshotterServer({
+      host: "127.0.0.1",
+      port: 0,
+      outputRoot,
+      allowOrigins: [],
+    });
+    runningServers.push(running);
+
+    const corrupt = await fetch(`${running.url}/api/captures`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(makePayload({ imageBase64: "not-base64" })),
+    });
+    expect(corrupt.status).toBe(400);
+    await expect(corrupt.json()).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining("base64"),
+    });
+
+    const wrongDataUrl = await fetch(`${running.url}/api/captures`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        makePayload({
+          imageBase64: `data:text/plain;base64,${PNG_1X1_BASE64}`,
+        }),
+      ),
+    });
+    expect(wrongDataUrl.status).toBe(400);
+    await expect(wrongDataUrl.json()).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining("image/png"),
+    });
+
+    const mismatchedFormat = await fetch(`${running.url}/api/captures`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        makePayload({
+          format: "jpeg",
+          imageBase64: PNG_1X1_BASE64,
+        }),
+      ),
+    });
+    expect(mismatchedFormat.status).toBe(400);
+    await expect(mismatchedFormat.json()).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining("JPEG"),
+    });
+  });
+
   it("requires token when configured", async () => {
     const outputRoot = await fs.mkdtemp(path.join(os.tmpdir(), "screenshotter-"));
     const running = await startScreenshotterServer({

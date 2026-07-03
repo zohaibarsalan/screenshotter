@@ -32,6 +32,36 @@ describe("loadServerConfigFromFile", () => {
     expect(loaded.allowOrigins).toEqual(DEFAULT_SERVER_CONFIG.allowOrigins);
   });
 
+  it("preserves an explicit empty allowOrigins list", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "screenshotter-config-"));
+    const configPath = path.join(tempRoot, "capture.widget.config.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        host: "127.0.0.1",
+        allowOrigins: [],
+      }),
+      "utf8",
+    );
+
+    const loaded = loadServerConfigFromFile(configPath);
+    expect(loaded.allowOrigins).toEqual([]);
+  });
+
+  it("rejects blank output roots", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "screenshotter-config-"));
+    const configPath = path.join(tempRoot, "capture.widget.config.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        outputRoot: "  ",
+      }),
+      "utf8",
+    );
+
+    expect(() => loadServerConfigFromFile(configPath)).toThrowError(/outputRoot/);
+  });
+
   it("rejects non-loopback hosts", () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "screenshotter-config-"));
     const configPath = path.join(tempRoot, "capture.widget.config.json");

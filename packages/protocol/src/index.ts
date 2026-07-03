@@ -46,6 +46,13 @@ const MODE_SET: ReadonlySet<CaptureMode> = new Set([
 ]);
 const FORMAT_SET: ReadonlySet<CaptureFormat> = new Set(["png", "jpeg"]);
 const THEME_SET: ReadonlySet<ThemeValue> = new Set(["light", "dark"]);
+const ISO_TIMESTAMP_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+const MAX_PROJECT_LENGTH = 120;
+const MAX_ROUTE_LENGTH = 1024;
+const MAX_SELECTOR_LENGTH = 1024;
+const MAX_VIEWPORT_EDGE = 20000;
+const MAX_VIEWPORT_DPR = 8;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -54,6 +61,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function asTrimmedString(
   value: unknown,
   fieldName: string,
+  maxLength?: number,
 ): ValidationResult<string> {
   if (typeof value !== "string") {
     return { ok: false, error: `${fieldName} must be a string.` };
@@ -61,6 +69,9 @@ function asTrimmedString(
   const trimmed = value.trim();
   if (!trimmed) {
     return { ok: false, error: `${fieldName} must be a non-empty string.` };
+  }
+  if (maxLength !== undefined && trimmed.length > maxLength) {
+    return { ok: false, error: `${fieldName} must be <= ${maxLength} characters.` };
   }
   return { ok: true, value: trimmed };
 }
@@ -165,10 +176,10 @@ export function validateCapturePayload(input: unknown): ValidationResult<Capture
     return { ok: false, error: "Payload must be an object." };
   }
 
-  const project = asTrimmedString(input.project, "project");
+  const project = asTrimmedString(input.project, "project", MAX_PROJECT_LENGTH);
   if (!project.ok) return project;
 
-  const route = asTrimmedString(input.route, "route");
+  const route = asTrimmedString(input.route, "route", MAX_ROUTE_LENGTH);
   if (!route.ok) return route;
 
   if (typeof input.mode !== "string" || !MODE_SET.has(input.mode as CaptureMode)) {
@@ -197,14 +208,14 @@ export function validateCapturePayload(input: unknown): ValidationResult<Capture
 
   let selector: string | undefined;
   if (input.selector !== undefined) {
-    const parsed = asTrimmedString(input.selector, "selector");
+    const parsed = asTrimmedString(input.selector, "selector", MAX_SELECTOR_LENGTH);
     if (!parsed.ok) return parsed;
     selector = parsed.value;
   }
 
   let selectorName: string | undefined;
   if (input.selectorName !== undefined) {
-    const parsed = asTrimmedString(input.selectorName, "selectorName");
+    const parsed = asTrimmedString(input.selectorName, "selectorName", MAX_SELECTOR_LENGTH);
     if (!parsed.ok) return parsed;
     selectorName = parsed.value;
   }
@@ -219,15 +230,21 @@ export function validateCapturePayload(input: unknown): ValidationResult<Capture
   if (!isRecord(input.viewport)) {
     return { ok: false, error: "viewport must be an object." };
   }
-  const width = asNumber(input.viewport.width, "viewport.width", 1);
+  const width = asNumber(input.viewport.width, "viewport.width", 1, MAX_VIEWPORT_EDGE);
   if (!width.ok) return width;
-  const height = asNumber(input.viewport.height, "viewport.height", 1);
+  const height = asNumber(input.viewport.height, "viewport.height", 1, MAX_VIEWPORT_EDGE);
   if (!height.ok) return height;
-  const dpr = asNumber(input.viewport.dpr, "viewport.dpr", 0.1);
+  const dpr = asNumber(input.viewport.dpr, "viewport.dpr", 0.1, MAX_VIEWPORT_DPR);
   if (!dpr.ok) return dpr;
 
   const capturedAt = asTrimmedString(input.capturedAt, "capturedAt");
   if (!capturedAt.ok) return capturedAt;
+  if (!ISO_TIMESTAMP_PATTERN.test(capturedAt.value)) {
+    return {
+      ok: false,
+      error: "capturedAt must be an ISO timestamp with a timezone.",
+    };
+  }
   const capturedDate = new Date(capturedAt.value);
   if (Number.isNaN(capturedDate.getTime())) {
     return { ok: false, error: "capturedAt must be a valid ISO date string." };

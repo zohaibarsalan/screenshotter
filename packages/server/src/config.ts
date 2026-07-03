@@ -30,8 +30,8 @@ function normalizeOrigins(value: unknown): string[] {
 }
 
 function resolveOrigins(value: unknown): string[] {
-  const parsed = normalizeOrigins(value);
-  return parsed.length ? parsed : [...DEFAULT_SERVER_CONFIG.allowOrigins];
+  if (value === undefined) return [...DEFAULT_SERVER_CONFIG.allowOrigins];
+  return normalizeOrigins(value);
 }
 
 export function loadServerConfigFromFile(filePath: string): ScreenshotterServerConfig {
@@ -66,10 +66,18 @@ export function loadServerConfigFromFile(filePath: string): ScreenshotterServerC
     throw new Error("maxPayloadMB must be a number between 0 and 100.");
   }
 
+  const outputRoot =
+    typeof (source as Record<string, unknown>).outputRoot === "string"
+      ? String((source as Record<string, unknown>).outputRoot).trim()
+      : String(DEFAULT_SERVER_CONFIG.outputRoot).trim();
+  if (!outputRoot) {
+    throw new Error("outputRoot must be a non-empty path.");
+  }
+
   return {
     host,
     port,
-    outputRoot: String(config.outputRoot || DEFAULT_SERVER_CONFIG.outputRoot).trim(),
+    outputRoot,
     token: String(config.token || ""),
     maxPayloadMB,
     allowOrigins: resolveOrigins((source as Record<string, unknown>).allowOrigins),
