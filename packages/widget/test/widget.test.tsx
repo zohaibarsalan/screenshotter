@@ -4,12 +4,14 @@ import { ScreenshotterWidget } from "../src";
 
 const html2canvasMock = vi.fn();
 const htmlToImageCanvasMock = vi.fn();
+const getFontEmbedCssMock = vi.fn();
 
 vi.mock("html2canvas-pro", () => ({
   default: (...args: unknown[]) => html2canvasMock(...args),
 }));
 
 vi.mock("html-to-image", () => ({
+  getFontEmbedCSS: (...args: unknown[]) => getFontEmbedCssMock(...args),
   toCanvas: (...args: unknown[]) => htmlToImageCanvasMock(...args),
 }));
 
@@ -73,8 +75,10 @@ function setupDownloadMocks(): {
 beforeEach(() => {
   html2canvasMock.mockReset();
   htmlToImageCanvasMock.mockReset();
+  getFontEmbedCssMock.mockReset();
   html2canvasMock.mockResolvedValue(createMockCanvas());
   htmlToImageCanvasMock.mockResolvedValue(createMockCanvas());
+  getFontEmbedCssMock.mockResolvedValue("@font-face { font-family: CaptureIcon; }");
 });
 
 describe("ScreenshotterWidget", () => {
@@ -134,9 +138,11 @@ describe("ScreenshotterWidget", () => {
     expect(htmlToImageCanvasMock).toHaveBeenCalledTimes(1);
     expect(htmlToImageCanvasMock.mock.calls[0]?.[0]).toBe(document.documentElement);
     const htmlToImageOptions = htmlToImageCanvasMock.mock.calls[0]?.[1] as
-      | { filter?: (node: HTMLElement) => boolean }
+      | { filter?: (node: HTMLElement) => boolean; fontEmbedCSS?: string; preferredFontFormat?: string }
       | undefined;
     expect(htmlToImageOptions?.filter?.({} as HTMLElement)).toBe(true);
+    expect(htmlToImageOptions?.fontEmbedCSS).toContain("CaptureIcon");
+    expect(htmlToImageOptions?.preferredFontFormat).toBeUndefined();
     expect(html2canvasMock).not.toHaveBeenCalled();
     expect(downloads.createObjectURLMock).toHaveBeenCalledTimes(1);
     expect(downloads.revokeObjectURLMock).toHaveBeenCalledTimes(1);
@@ -265,6 +271,9 @@ describe("ScreenshotterWidget", () => {
           cloneDocument.replaceChild(clonedRoot, cloneDocument.documentElement);
 
           onclone?.(cloneDocument);
+          const clonedTarget = cloneDocument.getElementById("oklch-target") as HTMLElement | null;
+          expect(clonedTarget?.style.color).toMatch(/^rgb/);
+          expect(clonedTarget?.style.boxShadow).not.toContain("oklch");
           oncloneSpy();
 
           return createMockCanvas();
@@ -273,12 +282,18 @@ describe("ScreenshotterWidget", () => {
 
     render(
       <div>
-        <div data-testid="oklch-target" id="oklch-target" style={{ color: "oklch(65% 0.2 150)" }}>
+        <div data-testid="oklch-target" id="oklch-target">
           Target
         </div>
         <ScreenshotterWidget enabled captureSettleMs={0} />
       </div>,
     );
+    screen
+      .getByTestId("oklch-target")
+      .setAttribute(
+        "style",
+        "color: oklch(65% 0.2 150); box-shadow: 0 0 2px oklch(65% 0.2 150);",
+      );
 
     fireEvent.click(screen.getByTestId("screenshotter-launcher"));
     fireEvent.click(screen.getByTestId("mode-viewport"));
@@ -289,6 +304,7 @@ describe("ScreenshotterWidget", () => {
     });
 
     expect(oncloneSpy).toHaveBeenCalledTimes(1);
+    expect(htmlToImageCanvasMock).not.toHaveBeenCalled();
     expect(html2canvasMock).toHaveBeenCalledTimes(2);
     const primaryOptions = html2canvasMock.mock.calls[0]?.[1] as Record<string, unknown>;
     const fallbackOptions = html2canvasMock.mock.calls[1]?.[1] as Record<string, unknown>;

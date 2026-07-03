@@ -18,14 +18,24 @@ import {
   type ThemeSelection,
   type ThemeValue,
 } from "./capture.js";
+import {
+  hasUnsupportedColorFunction,
+  sanitizeClonedDocumentForCanvas,
+} from "./capture-styles.js";
 
 const UI_MARKER_ATTR = "data-screenshotter-ui";
 type Html2Canvas = typeof import("html2canvas-pro").default;
 type Html2CanvasOptions = NonNullable<Parameters<Html2Canvas>[1]>;
-type HtmlToImageToCanvas = typeof import("html-to-image").toCanvas;
+type HtmlToImageModule = typeof import("html-to-image");
+type HtmlToImageToCanvas = HtmlToImageModule["toCanvas"];
+type HtmlToImageGetFontEmbedCss = HtmlToImageModule["getFontEmbedCSS"];
 type HtmlToImageOptions = NonNullable<Parameters<HtmlToImageToCanvas>[1]>;
-let htmlToImageToCanvasPromise: Promise<HtmlToImageToCanvas> | null = null;
+let htmlToImageModulePromise: Promise<{
+  toCanvas: HtmlToImageToCanvas;
+  getFontEmbedCSS: HtmlToImageGetFontEmbedCss;
+}> | null = null;
 let html2CanvasPromise: Promise<Html2Canvas> | null = null;
+const fontEmbedCssPromiseByDocument = new WeakMap<Document, Promise<string | undefined>>();
 const THEME_STORAGE_KEYS = [
   "vite-ui-theme",
   "theme",
@@ -171,11 +181,15 @@ const VIEWPORT_PRESETS_BY_GROUP: Record<ViewportPresetGroup, readonly ViewportPr
 };
 const STATUS_HIDE_DELAY_MS = 2600;
 
-function loadHtmlToImageToCanvas(): Promise<HtmlToImageToCanvas> {
-  htmlToImageToCanvasPromise ??= import("html-to-image").then(
-    (module) => module.toCanvas,
-  );
-  return htmlToImageToCanvasPromise;
+function loadHtmlToImage(): Promise<{
+  toCanvas: HtmlToImageToCanvas;
+  getFontEmbedCSS: HtmlToImageGetFontEmbedCss;
+}> {
+  htmlToImageModulePromise ??= import("html-to-image").then((module) => ({
+    toCanvas: module.toCanvas,
+    getFontEmbedCSS: module.getFontEmbedCSS,
+  }));
+  return htmlToImageModulePromise;
 }
 
 function loadHtml2Canvas(): Promise<Html2Canvas> {
@@ -715,12 +729,24 @@ function waitForMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function prepareImagesForCapture(sourceDocument: Document): void {
+function shouldSetAnonymousCrossOrigin(image: HTMLImageElement): boolean {
+  const source = image.currentSrc || image.src;
+  if (!source || source.startsWith("data:") || source.startsWith("blob:")) return false;
+  return !image.crossOrigin;
+}
+
+function prepareImagesForCapture(
+  sourceDocument: Document,
+  options: { setAnonymousCrossOrigin?: boolean } = {},
+): void {
   for (const image of Array.from(sourceDocument.images)) {
     if (image.loading !== "eager") {
       image.loading = "eager";
     }
     image.decoding = "sync";
+    if (options.setAnonymousCrossOrigin && shouldSetAnonymousCrossOrigin(image)) {
+      image.crossOrigin = "anonymous";
+    }
     if (!image.getAttribute("fetchpriority")) {
       image.setAttribute("fetchpriority", "high");
     }
@@ -749,6 +775,77 @@ async function waitForVisualAssetsReady(
     ]),
     waitForMs(timeoutMs),
   ]);
+}
+
+function copyAdoptedStyleSheets(sourceDocument: Document, targetDocument: Document): void {
+  const sourceWithSheets = sourceDocument as Document & {
+    adoptedStyleSheets?: CSSStyleSheet[];
+  };
+  const targetWithSheets = targetDocument as Document & {
+    adoptedStyleSheets?: CSSStyleSheet[];
+  };
+  if (!sourceWithSheets.adoptedStyleSheets || !targetWithSheets.adoptedStyleSheets) {
+    return;
+  }
+  try {
+    targetWithSheets.adoptedStyleSheets = [
+      ...targetWithSheets.adoptedStyleSheets,
+      ...sourceWithSheets.adoptedStyleSheets,
+    ];
+  } catch {
+    // Some browsers reject cross-document adoption. The cloned DOM still carries regular stylesheets.
+  }
+}
+
+async function waitForStylesheetsReady(
+  sourceDocument: Document,
+  timeoutMs = 2500,
+): Promise<void> {
+  const links = Array.from(
+    sourceDocument.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]'),
+  ).filter((link) => !link.disabled && !link.sheet);
+  if (!links.length) return;
+
+  const loaded = links.map(
+    (link) =>
+      new Promise<void>((resolve) => {
+        const finish = () => {
+          link.removeEventListener("load", finish);
+          link.removeEventListener("error", finish);
+          resolve();
+        };
+        link.addEventListener("load", finish, { once: true });
+        link.addEventListener("error", finish, { once: true });
+      }),
+  );
+
+  await Promise.race([Promise.all(loaded), waitForMs(timeoutMs)]);
+}
+
+function targetHasUnsupportedCaptureColors(
+  target: HTMLElement,
+  sourceDocument: Document,
+): boolean {
+  const sourceView = sourceDocument.defaultView ?? window;
+  const elements = [
+    target,
+    ...Array.from(target.querySelectorAll<HTMLElement>("*")),
+  ];
+
+  for (const element of elements) {
+    if (!(element instanceof sourceView.HTMLElement)) continue;
+    if (hasUnsupportedColorFunction(element.getAttribute("style") ?? "")) {
+      return true;
+    }
+    const computed = sourceView.getComputedStyle(element);
+    for (let index = 0; index < computed.length; index += 1) {
+      const property = computed.item(index);
+      if (property && hasUnsupportedColorFunction(computed.getPropertyValue(property))) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -967,9 +1064,10 @@ function resolveCaptureBackgroundColor(sourceDocument: Document): string {
   const root = sourceDocument.documentElement;
   const body = sourceDocument.body;
   const candidates: Array<HTMLElement | null> = [body, root];
+  const sourceView = sourceDocument.defaultView ?? window;
   for (const candidate of candidates) {
     if (!candidate) continue;
-    const computed = window.getComputedStyle(candidate);
+    const computed = sourceView.getComputedStyle(candidate);
     const backgroundColor = computed.backgroundColor;
     if (!isTransparentColor(backgroundColor)) {
       return backgroundColor;
@@ -1112,6 +1210,7 @@ async function createPresetCaptureContext(
     frameDocument.open();
     frameDocument.write("<!doctype html><html><head></head><body></body></html>");
     frameDocument.close();
+    copyAdoptedStyleSheets(document, frameDocument);
 
     const clonedRoot = document.documentElement.cloneNode(true) as HTMLElement;
     const widgetNodes = clonedRoot.querySelectorAll(`[${UI_MARKER_ATTR}="true"]`);
@@ -1137,8 +1236,10 @@ async function createPresetCaptureContext(
       frameHead.prepend(base);
     }
 
-    prepareImagesForCapture(frameDocument);
+    sanitizeClonedDocumentForCanvas(document, frameDocument);
+    prepareImagesForCapture(frameDocument, { setAnonymousCrossOrigin: true });
     await waitForMs(60);
+    await waitForStylesheetsReady(frameDocument, 3000);
     await waitForVisualAssetsReady(frameDocument, 3000);
 
     const frameRoot = frameDocument.documentElement;
@@ -1183,12 +1284,16 @@ function isAbortError(error: unknown): boolean {
 
 function prepareClonedDocumentForCapture(
   clonedDocument: Document,
+  sourceDocument?: Document,
 ): void {
+  if (sourceDocument) {
+    sanitizeClonedDocumentForCanvas(sourceDocument, clonedDocument);
+  }
   const widgetNodes = clonedDocument.querySelectorAll(`[${UI_MARKER_ATTR}="true"]`);
   for (const node of widgetNodes) {
     node.remove();
   }
-  prepareImagesForCapture(clonedDocument);
+  prepareImagesForCapture(clonedDocument, { setAnonymousCrossOrigin: true });
 }
 
 function getViewportCrop(
@@ -1291,6 +1396,20 @@ function getHtmlToImageRenderSize(
   return getFullPageRenderSize(viewport, sourceDocument);
 }
 
+async function getFontEmbedCssForCapture(
+  target: HTMLElement,
+  sourceDocument: Document,
+): Promise<string | undefined> {
+  let promise = fontEmbedCssPromiseByDocument.get(sourceDocument);
+  if (!promise) {
+    promise = loadHtmlToImage()
+      .then(({ getFontEmbedCSS }) => getFontEmbedCSS(target, { cacheBust: true }))
+      .catch(() => undefined);
+    fontEmbedCssPromiseByDocument.set(sourceDocument, promise);
+  }
+  return promise;
+}
+
 async function renderWithHtmlToImage(
   mode: CaptureMode,
   target: HTMLElement,
@@ -1306,13 +1425,14 @@ async function renderWithHtmlToImage(
     viewport,
     sourceDocument,
   );
+  const fontEmbedCSS = await getFontEmbedCssForCapture(target, sourceDocument);
   const options: HtmlToImageOptions = {
     backgroundColor: captureBackgroundColor,
     cacheBust: true,
     filter: (node) => !ignoreElements(node),
+    fontEmbedCSS,
     includeQueryParams: true,
     pixelRatio: scale,
-    preferredFontFormat: "woff2",
     skipAutoScale: true,
     width: renderSize.width,
     height: renderSize.height,
@@ -1324,7 +1444,7 @@ async function renderWithHtmlToImage(
     },
   };
 
-  const toCanvas = await loadHtmlToImageToCanvas();
+  const { toCanvas } = await loadHtmlToImage();
   const canvas = await toCanvas(target, options);
   if (mode !== "viewport") {
     return canvas;
@@ -1393,7 +1513,7 @@ async function renderWithHtml2Canvas(
     ...renderOptions,
     onclone: (clonedDocument) => {
       try {
-        prepareClonedDocumentForCapture(clonedDocument);
+        prepareClonedDocumentForCapture(clonedDocument, sourceDocument);
       } catch {
         // Keep capture flow resilient even if clone prep fails.
       }
@@ -1441,6 +1561,18 @@ async function renderWithBestRenderer(
   sourceDocument: Document,
   scroll: { x: number; y: number },
 ): Promise<HTMLCanvasElement> {
+  if (targetHasUnsupportedCaptureColors(target, sourceDocument)) {
+    return renderWithHtml2Canvas(
+      mode,
+      target,
+      scale,
+      ignoreElements,
+      viewport,
+      sourceDocument,
+      scroll,
+    );
+  }
+
   try {
     return await renderWithHtmlToImage(
       mode,
@@ -1473,25 +1605,27 @@ async function renderElementCapture(
   scroll: { x: number; y: number },
   paddingPx: number,
 ): Promise<HTMLCanvasElement> {
-  try {
-    const viewportCanvas = await renderWithHtmlToImage(
-      "viewport",
-      sourceDocument.documentElement,
-      scale,
-      ignoreElements,
-      viewport,
-      sourceDocument,
-      scroll,
-    );
-    return cropElementFromViewportCanvas(
-      viewportCanvas,
-      target.getBoundingClientRect(),
-      scale,
-      paddingPx,
-    );
-  } catch {
-    // Fall through to the canvas renderer when SVG foreignObject rendering
-    // cannot preserve the current page.
+  if (!targetHasUnsupportedCaptureColors(sourceDocument.documentElement, sourceDocument)) {
+    try {
+      const viewportCanvas = await renderWithHtmlToImage(
+        "viewport",
+        sourceDocument.documentElement,
+        scale,
+        ignoreElements,
+        viewport,
+        sourceDocument,
+        scroll,
+      );
+      return cropElementFromViewportCanvas(
+        viewportCanvas,
+        target.getBoundingClientRect(),
+        scale,
+        paddingPx,
+      );
+    } catch {
+      // Fall through to the canvas renderer when SVG foreignObject rendering
+      // cannot preserve the current page.
+    }
   }
 
   try {
