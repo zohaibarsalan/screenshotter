@@ -200,6 +200,84 @@ describe("ScreenshotterWidget", () => {
     downloads.restore();
   });
 
+  it("inlines svg foreignObject label styles during element capture", async () => {
+    const downloads = setupDownloadMocks();
+    let capturedCenterStyle = "";
+    let capturedCenterXmlns: string | null = null;
+
+    htmlToImageCanvasMock.mockImplementationOnce(async (target: HTMLElement) => {
+      const center = target.querySelector(".center-label");
+      if (!(center instanceof HTMLElement)) {
+        throw new Error("Expected svg foreignObject label fixture.");
+      }
+      capturedCenterStyle = center.getAttribute("style") ?? "";
+      capturedCenterXmlns = center.getAttribute("xmlns");
+      expect(center.style.display).toBe("flex");
+      expect(center.style.alignItems).toBe("center");
+      expect(center.style.justifyContent).toBe("center");
+      expect(center.style.textAlign).toBe("center");
+      return createMockCanvas();
+    });
+
+    render(
+      <div>
+        <style>
+          {`
+            .center-label {
+              align-items: center;
+              display: flex;
+              flex-direction: column;
+              height: 92px;
+              justify-content: center;
+              text-align: center;
+              width: 92px;
+            }
+            .center-value {
+              font-size: 20px;
+              font-weight: 600;
+            }
+          `}
+        </style>
+        <article data-testid="chart-card" style={{ border: "1px solid currentColor" }}>
+          <h2>Matter Health</h2>
+          <svg height="128" width="128">
+            <g transform="translate(64, 64)">
+              <foreignObject height="92" width="92" x="-46" y="-46">
+                <div className="center-label">
+                  <p>Active</p>
+                  <p className="center-value">80.1%</p>
+                </div>
+              </foreignObject>
+            </g>
+          </svg>
+        </article>
+        <ScreenshotterWidget enabled captureSettleMs={0} />
+      </div>,
+    );
+
+    const card = screen.getByTestId("chart-card");
+    const center = card.querySelector(".center-label") as HTMLElement | null;
+    if (!(card instanceof HTMLElement) || !center) {
+      throw new Error("Test fixture did not render expected chart.");
+    }
+    assignRect(card, { left: 100, top: 100, width: 220, height: 180 });
+
+    fireEvent.click(screen.getByTestId("screenshotter-launcher"));
+    fireEvent.click(screen.getByTestId("action-button"));
+    fireEvent.click(card);
+
+    await waitFor(() => {
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
+    });
+
+    expect(capturedCenterStyle).toContain("display: flex");
+    expect(capturedCenterXmlns).toBe("http://www.w3.org/1999/xhtml");
+    expect(center.getAttribute("style")).toBeNull();
+    expect(center.getAttribute("xmlns")).toBeNull();
+
+    downloads.restore();
+  });
+
   it("downloads viewport and fullpage captures with mode-specific names", async () => {
     const downloads = setupDownloadMocks();
     const onSaved = vi.fn();

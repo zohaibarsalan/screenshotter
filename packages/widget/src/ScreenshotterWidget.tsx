@@ -20,6 +20,8 @@ import {
   type ThemeValue,
 } from "./capture.js";
 import {
+  hasUnsupportedColorFunction,
+  normalizeCssColorForCanvas,
   sanitizeClonedDocumentForCanvas,
 } from "./capture-styles.js";
 
@@ -179,6 +181,59 @@ const VIEWPORT_PRESETS_BY_GROUP: Record<ViewportPresetGroup, readonly ViewportPr
 const STATUS_HIDE_DELAY_MS = 2600;
 const GENERIC_CLASS_TOKEN_PATTERN =
   /^(?:flex|grid|block|inline|contents|relative|absolute|fixed|sticky|static|hidden|visible|invisible|items-.+|justify-.+|content-.+|self-.+|place-.+|gap(?:-[\w:[\]/.%]+)?|space-[xy]-.+|p[trblxy]?-.+|m[trblxy]?-.+|w-.+|h-.+|min-w-.+|min-h-.+|max-w-.+|max-h-.+|rounded(?:-.+)?|border(?:-.+)?|bg-.+|text-.+|font-.+|leading-.+|tracking-.+|shadow(?:-.+)?|overflow-.+|z-.+|opacity-.+|transition(?:-.+)?|duration-.+|ease-.+|shrink(?:-.+)?|grow(?:-.+)?|basis-.+|order-.+|col-.+|row-.+)$/;
+const SVG_FOREIGN_OBJECT_STYLE_PROPERTIES = [
+  "align-content",
+  "align-items",
+  "align-self",
+  "background",
+  "background-color",
+  "border",
+  "border-color",
+  "border-radius",
+  "border-style",
+  "border-width",
+  "box-shadow",
+  "box-sizing",
+  "color",
+  "display",
+  "flex",
+  "flex-basis",
+  "flex-direction",
+  "flex-grow",
+  "flex-shrink",
+  "flex-wrap",
+  "font",
+  "font-family",
+  "font-feature-settings",
+  "font-kerning",
+  "font-size",
+  "font-stretch",
+  "font-style",
+  "font-variant",
+  "font-variant-numeric",
+  "font-weight",
+  "gap",
+  "height",
+  "justify-content",
+  "letter-spacing",
+  "line-height",
+  "margin",
+  "max-height",
+  "max-width",
+  "min-height",
+  "min-width",
+  "opacity",
+  "overflow",
+  "padding",
+  "text-align",
+  "text-decoration",
+  "text-overflow",
+  "text-transform",
+  "transform",
+  "transform-origin",
+  "white-space",
+  "width",
+] as const;
 
 function loadHtmlToImage(): Promise<{
   toCanvas: HtmlToImageToCanvas;
@@ -1397,6 +1452,67 @@ function normalizeElementPadding(value: number): number {
   return clamp(Math.round(value), 0, 96);
 }
 
+function normalizeInlineCaptureStyleValue(value: string): string {
+  return hasUnsupportedColorFunction(value)
+    ? normalizeCssColorForCanvas(value, "rgb(0, 0, 0)")
+    : value;
+}
+
+function inlineSvgForeignObjectStyles(
+  target: HTMLElement,
+  sourceDocument: Document,
+): () => void {
+  const sourceView = sourceDocument.defaultView ?? window;
+  const foreignObjects = Array.from(target.querySelectorAll("foreignObject"));
+  if (!foreignObjects.length) return () => undefined;
+
+  const restoreCallbacks: Array<() => void> = [];
+
+  for (const foreignObject of foreignObjects) {
+    for (const child of Array.from(foreignObject.children)) {
+      if (!(child instanceof sourceView.HTMLElement)) continue;
+      const previousXmlns = child.getAttribute("xmlns");
+      restoreCallbacks.push(() => {
+        if (previousXmlns === null) {
+          child.removeAttribute("xmlns");
+          return;
+        }
+        child.setAttribute("xmlns", previousXmlns);
+      });
+      child.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+    }
+
+    for (const element of Array.from(foreignObject.querySelectorAll("*"))) {
+      if (!(element instanceof sourceView.HTMLElement)) continue;
+      const previousStyle = element.getAttribute("style");
+      restoreCallbacks.push(() => {
+        if (previousStyle === null) {
+          element.removeAttribute("style");
+          return;
+        }
+        element.setAttribute("style", previousStyle);
+      });
+
+      const computed = sourceView.getComputedStyle(element);
+      for (const property of SVG_FOREIGN_OBJECT_STYLE_PROPERTIES) {
+        const value = computed.getPropertyValue(property);
+        if (!value) continue;
+        element.style.setProperty(
+          property,
+          normalizeInlineCaptureStyleValue(value),
+          computed.getPropertyPriority(property),
+        );
+      }
+    }
+  }
+
+  return () => {
+    for (let index = restoreCallbacks.length - 1; index >= 0; index -= 1) {
+      restoreCallbacks[index]?.();
+    }
+  };
+}
+
 function isAbortError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === "AbortError") return true;
   if (error instanceof Error && error.name === "AbortError") return true;
@@ -1560,8 +1676,14 @@ async function renderWithHtmlToImage(
     },
   };
 
-  const { toCanvas } = await loadHtmlToImage();
-  const canvas = await toCanvas(target, options);
+  const restoreForeignObjectStyles = inlineSvgForeignObjectStyles(target, sourceDocument);
+  let canvas: HTMLCanvasElement;
+  try {
+    const { toCanvas } = await loadHtmlToImage();
+    canvas = await toCanvas(target, options);
+  } finally {
+    restoreForeignObjectStyles();
+  }
   if (mode !== "viewport") {
     return canvas;
   }
