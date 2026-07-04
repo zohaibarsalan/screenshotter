@@ -24,6 +24,7 @@ import {
   normalizeCssColorForCanvas,
   sanitizeClonedDocumentForCanvas,
 } from "./capture-styles.js";
+import { createPreparedElementCaptureClone } from "./prepared-capture-clone.js";
 
 const UI_MARKER_ATTR = "data-screenshotter-ui";
 type HtmlToImageModule = typeof import("html-to-image");
@@ -1708,16 +1709,21 @@ async function renderElementCapture(
   scroll: { x: number; y: number },
   paddingPx: number,
 ): Promise<HTMLCanvasElement> {
-  const canvas = await renderWithHtmlToImage(
-    "element",
-    target,
-    scale,
-    ignoreElements,
-    viewport,
-    sourceDocument,
-    scroll,
-  );
-  return padCanvas(canvas, paddingPx, scale, resolveCaptureBackgroundColor(sourceDocument));
+  const preparedClone = createPreparedElementCaptureClone(target);
+  try {
+    const canvas = await renderWithHtmlToImage(
+      "element",
+      preparedClone.element,
+      scale,
+      ignoreElements,
+      viewport,
+      sourceDocument,
+      scroll,
+    );
+    return padCanvas(canvas, paddingPx, scale, resolveCaptureBackgroundColor(sourceDocument));
+  } finally {
+    preparedClone.cleanup();
+  }
 }
 
 export function ScreenshotterWidget({

@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ScreenshotterWidget } from "../src";
+import {
+  DASHBOARDWISE_DONUT_PATHS,
+  DashboardwiseDonutFixture,
+} from "./dashboardwise-donut-fixture";
 
 const htmlToImageCanvasMock = vi.fn();
 const getFontEmbedCssMock = vi.fn();
@@ -150,7 +154,11 @@ describe("ScreenshotterWidget", () => {
     const saved = onSaved.mock.calls[0]?.[0];
     expect(saved?.relativePath).toContain("-element-");
     expect(htmlToImageCanvasMock).toHaveBeenCalledTimes(1);
-    expect(htmlToImageCanvasMock.mock.calls[0]?.[0]).toBe(target);
+    const renderedTarget = htmlToImageCanvasMock.mock.calls[0]?.[0] as HTMLElement;
+    expect(renderedTarget).not.toBe(target);
+    expect(renderedTarget).toHaveAttribute("data-testid", "target");
+    expect(renderedTarget.textContent).toContain("Target");
+    expect(document.querySelector("[data-screenshotter-prepared-clone]")).toBeNull();
     expect(downloads.createObjectURLMock).toHaveBeenCalledTimes(1);
     expect(downloads.revokeObjectURLMock).toHaveBeenCalledTimes(1);
 
@@ -195,7 +203,11 @@ describe("ScreenshotterWidget", () => {
     const saved = onSaved.mock.calls[0]?.[0];
     expect(saved?.relativePath).toContain("-element-matter-health-");
     expect(saved?.relativePath).not.toContain("-flex-");
-    expect(htmlToImageCanvasMock.mock.calls[0]?.[0]).toBe(card);
+    const renderedTarget = htmlToImageCanvasMock.mock.calls[0]?.[0] as HTMLElement;
+    expect(renderedTarget).not.toBe(card);
+    expect(renderedTarget.tagName).toBe("ARTICLE");
+    expect(renderedTarget.textContent).toContain("Matter Health");
+    expect(document.querySelector("[data-screenshotter-prepared-clone]")).toBeNull();
 
     downloads.restore();
   });
@@ -274,6 +286,106 @@ describe("ScreenshotterWidget", () => {
     expect(capturedCenterXmlns).toBe("http://www.w3.org/1999/xhtml");
     expect(center.getAttribute("style")).toBeNull();
     expect(center.getAttribute("xmlns")).toBeNull();
+
+    downloads.restore();
+  });
+
+  it("prepares Dashboardwise-like donut foreignObject labels and restores the live DOM", async () => {
+    const downloads = setupDownloadMocks();
+    let capturedLabelStyle = "";
+    let capturedValueStyle = "";
+    let capturedLabelXmlns: string | null = null;
+    let capturedPathData: string[] = [];
+    let capturedTarget: HTMLElement | null = null;
+    let capturedOptions: { height?: number; width?: number } | undefined;
+    let capturedForeignObjectCount = 0;
+    let capturedLabelCssText = "";
+    let capturedValueCssText = "";
+
+    htmlToImageCanvasMock.mockImplementationOnce(
+      async (
+        target: HTMLElement,
+        options?: { height?: number; width?: number },
+      ) => {
+        const label = target.querySelector(".dw-donut-label");
+        const value = target.querySelector(".dw-donut-label-value");
+        const paths = Array.from(target.querySelectorAll("svg path"));
+
+        capturedTarget = target;
+        capturedOptions = options;
+        capturedForeignObjectCount = target.querySelectorAll("foreignObject").length;
+        capturedPathData = paths.map((path) => path.getAttribute("d") ?? "");
+
+        if (label instanceof HTMLElement) {
+          capturedLabelStyle = label.getAttribute("style") ?? "";
+          capturedLabelXmlns = label.getAttribute("xmlns");
+          capturedLabelCssText = label.style.cssText;
+        }
+        if (value instanceof HTMLElement) {
+          capturedValueStyle = value.getAttribute("style") ?? "";
+          capturedValueCssText = value.style.cssText;
+        }
+
+        return createMockCanvas();
+      },
+    );
+
+    render(
+      <div>
+        <DashboardwiseDonutFixture />
+        <ScreenshotterWidget enabled captureSettleMs={0} elementPaddingPx={0} />
+      </div>,
+    );
+
+    const card = screen.getByTestId("dashboardwise-donut-card");
+    const liveLabel = card.querySelector(".dw-donut-label");
+    const liveValue = card.querySelector(".dw-donut-label-value");
+    if (
+      !(card instanceof HTMLElement) ||
+      !(liveLabel instanceof HTMLElement) ||
+      !(liveValue instanceof HTMLElement)
+    ) {
+      throw new Error("Test fixture did not render expected Dashboardwise donut.");
+    }
+
+    expect(liveLabel.getAttribute("style")).toBeNull();
+    expect(liveLabel.getAttribute("xmlns")).toBeNull();
+    assignRect(card, { left: 120, top: 96, width: 360, height: 286 });
+
+    fireEvent.click(screen.getByTestId("screenshotter-launcher"));
+    fireEvent.click(screen.getByTestId("action-button"));
+    fireEvent.click(card);
+
+    await waitFor(() => {
+      expect(downloads.clickSpy).toHaveBeenCalledTimes(1);
+    });
+
+    expect(capturedTarget).not.toBe(card);
+    expect(capturedTarget).toHaveAttribute("data-testid", "dashboardwise-donut-card");
+    expect(capturedOptions?.width).toBe(360);
+    expect(capturedOptions?.height).toBe(286);
+    expect(capturedForeignObjectCount).toBe(1);
+    expect(capturedPathData).toEqual([...DASHBOARDWISE_DONUT_PATHS]);
+    expect(capturedLabelCssText).toContain("display: flex");
+    expect(capturedLabelCssText).toContain("flex-direction: column");
+    expect(capturedLabelCssText).toContain("align-items: center");
+    expect(capturedLabelCssText).toContain("justify-content: center");
+    expect(capturedLabelCssText).toContain("text-align: center");
+    expect(capturedLabelCssText).toContain("width: 112px");
+    expect(capturedValueCssText).toContain("font-size: 22px");
+    expect(capturedValueCssText).toContain("white-space: nowrap");
+    expect(capturedLabelXmlns).toBe("http://www.w3.org/1999/xhtml");
+    expect(capturedLabelStyle).toContain("display: flex");
+    expect(capturedLabelStyle).toContain("flex-direction: column");
+    expect(capturedLabelStyle).toContain("justify-content: center");
+    expect(capturedLabelStyle).toContain("text-align: center");
+    expect(capturedValueStyle).toContain("font-size: 22px");
+    expect(capturedValueStyle).toContain("white-space: nowrap");
+    expect(capturedPathData).toEqual([...DASHBOARDWISE_DONUT_PATHS]);
+    expect(liveLabel.getAttribute("style")).toBeNull();
+    expect(liveLabel.getAttribute("xmlns")).toBeNull();
+    expect(liveValue.getAttribute("style")).toBeNull();
+    expect(document.querySelector("[data-screenshotter-prepared-clone]")).toBeNull();
 
     downloads.restore();
   });
