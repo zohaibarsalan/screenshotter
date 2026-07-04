@@ -24,8 +24,6 @@ import {
 } from "./capture-styles.js";
 
 const UI_MARKER_ATTR = "data-screenshotter-ui";
-type Html2Canvas = typeof import("html2canvas-pro").default;
-type Html2CanvasOptions = NonNullable<Parameters<Html2Canvas>[1]>;
 type HtmlToImageModule = typeof import("html-to-image");
 type HtmlToImageToCanvas = HtmlToImageModule["toCanvas"];
 type HtmlToImageGetFontEmbedCss = HtmlToImageModule["getFontEmbedCSS"];
@@ -34,7 +32,6 @@ let htmlToImageModulePromise: Promise<{
   toCanvas: HtmlToImageToCanvas;
   getFontEmbedCSS: HtmlToImageGetFontEmbedCss;
 }> | null = null;
-let html2CanvasPromise: Promise<Html2Canvas> | null = null;
 const fontEmbedCssPromiseByDocument = new WeakMap<Document, Promise<string | undefined>>();
 const THEME_STORAGE_KEYS = [
   "vite-ui-theme",
@@ -49,12 +46,6 @@ const CAPTURE_MODE_OPTIONS: readonly CaptureMode[] = [
 ];
 const FORMAT_OPTIONS: readonly CaptureFormat[] = ["png", "jpeg"];
 const THEME_OPTIONS: readonly ThemeSelection[] = ["current", "both"];
-export type CaptureRenderer = "auto" | "html-to-image" | "html2canvas";
-const CAPTURE_RENDERER_OPTIONS: readonly CaptureRenderer[] = [
-  "auto",
-  "html-to-image",
-  "html2canvas",
-];
 type CaptureViewport = CapturePayload["viewport"];
 type ViewportPresetGroup = "phone" | "tablet" | "laptop" | "desktop";
 interface ViewportPreset {
@@ -198,11 +189,6 @@ function loadHtmlToImage(): Promise<{
     getFontEmbedCSS: module.getFontEmbedCSS,
   }));
   return htmlToImageModulePromise;
-}
-
-function loadHtml2Canvas(): Promise<Html2Canvas> {
-  html2CanvasPromise ??= import("html2canvas-pro").then((module) => module.default);
-  return html2CanvasPromise;
 }
 
 const WIDGET_PANEL_CSS = `
@@ -747,7 +733,6 @@ export interface ScreenshotterWidgetProps {
   elementPaddingPx?: number;
   captureSettleMs?: number;
   defaultMode?: CaptureMode;
-  defaultRenderer?: CaptureRenderer;
   themeSelectionDefault?: ThemeSelection;
   themeAdapter?: {
     getCurrentTheme: () => ThemeValue;
@@ -939,12 +924,6 @@ function actionLabel(mode: CaptureMode, isPickingElement: boolean, isSaving: boo
     return isSaving ? "Capturing..." : "Capture viewport";
   }
   return isSaving ? "Capturing..." : "Capture full page";
-}
-
-function rendererLabel(renderer: CaptureRenderer): string {
-  if (renderer === "html-to-image") return "HTML to image";
-  if (renderer === "html2canvas") return "Canvas";
-  return "Auto";
 }
 
 function getViewportPreset(key: string): ViewportPreset | null {
@@ -1425,20 +1404,6 @@ function isAbortError(error: unknown): boolean {
   return message.includes("abort");
 }
 
-function prepareClonedDocumentForCapture(
-  clonedDocument: Document,
-  sourceDocument?: Document,
-): void {
-  if (sourceDocument) {
-    sanitizeClonedDocumentForCanvas(sourceDocument, clonedDocument);
-  }
-  const widgetNodes = clonedDocument.querySelectorAll(`[${UI_MARKER_ATTR}="true"]`);
-  for (const node of widgetNodes) {
-    node.remove();
-  }
-  prepareImagesForCapture(clonedDocument, { setAnonymousCrossOrigin: true });
-}
-
 function getViewportCrop(
   scale: number,
   sourceWidth: number,
@@ -1505,20 +1470,28 @@ function cropCanvas(
   return canvas;
 }
 
-function cropElementFromViewportCanvas(
-  viewportCanvas: HTMLCanvasElement,
-  rect: DOMRect,
+function padCanvas(
+  source: HTMLCanvasElement,
+  paddingPx: number,
   scale: number,
-  paddingPx = 0,
+  backgroundColor: string,
 ): HTMLCanvasElement {
-  const safePadding = Math.max(0, paddingPx);
-  const sx = Math.max(0, Math.floor((rect.left - safePadding) * scale));
-  const sy = Math.max(0, Math.floor((rect.top - safePadding) * scale));
-  const requestedWidth = Math.max(1, Math.ceil((rect.width + safePadding * 2) * scale));
-  const requestedHeight = Math.max(1, Math.ceil((rect.height + safePadding * 2) * scale));
-  const sw = Math.max(1, Math.min(requestedWidth, viewportCanvas.width - sx));
-  const sh = Math.max(1, Math.min(requestedHeight, viewportCanvas.height - sy));
-  return cropCanvas(viewportCanvas, { sx, sy, sw, sh });
+  const scaledPadding = Math.max(0, Math.round(paddingPx * scale));
+  if (!scaledPadding) return source;
+
+  const ownerDocument = source.ownerDocument ?? (typeof document !== "undefined" ? document : null);
+  const canvas = ownerDocument?.createElement("canvas");
+  if (!canvas) return source;
+
+  canvas.width = Math.max(1, source.width + scaledPadding * 2);
+  canvas.height = Math.max(1, source.height + scaledPadding * 2);
+  const context = canvas.getContext("2d");
+  if (!context) return source;
+
+  context.fillStyle = backgroundColor;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(source, scaledPadding, scaledPadding);
+  return canvas;
 }
 
 function getHtmlToImageRenderSize(
@@ -1604,203 +1577,6 @@ async function renderWithHtmlToImage(
   return cropCanvas(canvas, crop);
 }
 
-async function renderWithHtml2Canvas(
-  mode: CaptureMode,
-  target: HTMLElement,
-  scale: number,
-  ignoreElements: (element: Element) => boolean,
-  viewport: CaptureViewport,
-  sourceDocument: Document,
-  scroll: { x: number; y: number },
-): Promise<HTMLCanvasElement> {
-  const captureBackgroundColor = resolveCaptureBackgroundColor(sourceDocument);
-  const commonOptions: Html2CanvasOptions = {
-    backgroundColor: captureBackgroundColor,
-    logging: false,
-    useCORS: true,
-    scale,
-    ignoreElements,
-  };
-
-  let options = commonOptions;
-  if (mode === "viewport") {
-    options = {
-      ...commonOptions,
-      width: viewport.width,
-      height: viewport.height,
-      x: scroll.x,
-      y: scroll.y,
-      scrollX: scroll.x,
-      scrollY: scroll.y,
-      windowWidth: viewport.width,
-      windowHeight: viewport.height,
-    };
-  }
-
-  if (mode === "fullpage") {
-    const fullPage = getFullPageRenderSize(viewport, sourceDocument);
-    options = {
-      ...commonOptions,
-      width: fullPage.width,
-      height: fullPage.height,
-      x: 0,
-      y: 0,
-      scrollX: 0,
-      scrollY: 0,
-      windowWidth: viewport.width,
-      windowHeight: viewport.height,
-    };
-  }
-
-  const withClonePrep = (renderOptions: Html2CanvasOptions): Html2CanvasOptions => ({
-    ...renderOptions,
-    onclone: (clonedDocument) => {
-      try {
-        prepareClonedDocumentForCapture(clonedDocument, sourceDocument);
-      } catch {
-        // Keep capture flow resilient even if clone prep fails.
-      }
-    },
-  });
-
-  const runAttempt = async (
-    renderOptions: Html2CanvasOptions,
-  ): Promise<HTMLCanvasElement> => {
-    const html2canvas = await loadHtml2Canvas();
-    return await html2canvas(target, renderOptions);
-  };
-
-  const primaryOptions = withClonePrep({
-    ...options,
-    backgroundColor: captureBackgroundColor,
-    foreignObjectRendering: false,
-  });
-  const fallbackOptions = withClonePrep({
-    ...options,
-    backgroundColor: null,
-    foreignObjectRendering: true,
-  });
-
-  let primaryError: unknown;
-  try {
-    return await runAttempt(primaryOptions);
-  } catch (error) {
-    primaryError = error;
-  }
-
-  try {
-    return await runAttempt(fallbackOptions);
-  } catch (fallbackError) {
-    throw fallbackError ?? primaryError ?? new Error("Capture failed.");
-  }
-}
-
-async function renderWithBestRenderer(
-  mode: CaptureMode,
-  target: HTMLElement,
-  scale: number,
-  ignoreElements: (element: Element) => boolean,
-  viewport: CaptureViewport,
-  sourceDocument: Document,
-  scroll: { x: number; y: number },
-  renderer: CaptureRenderer,
-): Promise<HTMLCanvasElement> {
-  if (renderer !== "html-to-image") {
-    try {
-      return await renderWithHtml2Canvas(
-        mode,
-        target,
-        scale,
-        ignoreElements,
-        viewport,
-        sourceDocument,
-        scroll,
-      );
-    } catch (error) {
-      if (renderer === "html2canvas") {
-        throw error;
-      }
-    }
-  }
-
-  try {
-    return await renderWithHtmlToImage(
-      mode,
-      target,
-      scale,
-      ignoreElements,
-      viewport,
-      sourceDocument,
-      scroll,
-    );
-  } catch (error) {
-    if (renderer !== "html-to-image") {
-      throw error;
-    }
-  }
-
-  return renderWithHtml2Canvas(
-    mode,
-    target,
-    scale,
-    ignoreElements,
-    viewport,
-    sourceDocument,
-    scroll,
-  );
-}
-
-async function renderViewportForElementCapture(
-  scale: number,
-  ignoreElements: (element: Element) => boolean,
-  viewport: CaptureViewport,
-  sourceDocument: Document,
-  scroll: { x: number; y: number },
-  renderer: CaptureRenderer,
-): Promise<HTMLCanvasElement> {
-  return renderWithBestRenderer(
-    "viewport",
-    sourceDocument.documentElement,
-    scale,
-    ignoreElements,
-    viewport,
-    sourceDocument,
-    scroll,
-    renderer,
-  );
-}
-
-async function renderElementDirectFallback(
-  target: HTMLElement,
-  scale: number,
-  ignoreElements: (element: Element) => boolean,
-  viewport: CaptureViewport,
-  sourceDocument: Document,
-  scroll: { x: number; y: number },
-): Promise<HTMLCanvasElement> {
-  try {
-    return await renderWithHtml2Canvas(
-      "element",
-      target,
-      scale,
-      ignoreElements,
-      viewport,
-      sourceDocument,
-      scroll,
-    );
-  } catch {
-    return renderWithHtmlToImage(
-      "element",
-      target,
-      scale,
-      ignoreElements,
-      viewport,
-      sourceDocument,
-      scroll,
-    );
-  }
-}
-
 async function renderElementCapture(
   target: HTMLElement,
   scale: number,
@@ -1809,33 +1585,17 @@ async function renderElementCapture(
   sourceDocument: Document,
   scroll: { x: number; y: number },
   paddingPx: number,
-  renderer: CaptureRenderer,
 ): Promise<HTMLCanvasElement> {
-  try {
-    const viewportCanvas = await renderViewportForElementCapture(
-      scale,
-      ignoreElements,
-      viewport,
-      sourceDocument,
-      scroll,
-      renderer,
-    );
-    return cropElementFromViewportCanvas(
-      viewportCanvas,
-      target.getBoundingClientRect(),
-      scale,
-      paddingPx,
-    );
-  } catch {
-    return renderElementDirectFallback(
-      target,
-      scale,
-      ignoreElements,
-      viewport,
-      sourceDocument,
-      scroll,
-    );
-  }
+  const canvas = await renderWithHtmlToImage(
+    "element",
+    target,
+    scale,
+    ignoreElements,
+    viewport,
+    sourceDocument,
+    scroll,
+  );
+  return padCanvas(canvas, paddingPx, scale, resolveCaptureBackgroundColor(sourceDocument));
 }
 
 export function ScreenshotterWidget({
@@ -1844,7 +1604,6 @@ export function ScreenshotterWidget({
   elementPaddingPx = 8,
   captureSettleMs = 700,
   defaultMode = "element",
-  defaultRenderer = "auto",
   themeSelectionDefault = "current",
   themeAdapter,
   onSaved,
@@ -1857,7 +1616,6 @@ export function ScreenshotterWidget({
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [mode, setMode] = useState<CaptureMode>(defaultMode);
-  const [renderer, setRenderer] = useState<CaptureRenderer>(defaultRenderer);
   const [presetKey, setPresetKey] = useState<string>(LIVE_VIEWPORT_PRESET_KEY);
   const [format, setFormat] = useState<CaptureFormat>("png");
   const [quality, setQuality] = useState<number>(90);
@@ -1911,10 +1669,6 @@ export function ScreenshotterWidget({
   useEffect(() => {
     setElementPadding(normalizeElementPadding(elementPaddingPx));
   }, [elementPaddingPx]);
-
-  useEffect(() => {
-    setRenderer(defaultRenderer);
-  }, [defaultRenderer]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -2056,10 +1810,9 @@ export function ScreenshotterWidget({
             captureDocument,
             { x: window.scrollX, y: window.scrollY },
             safeElementPaddingPx,
-            renderer,
           );
         } else {
-          canvas = await renderWithBestRenderer(
+          canvas = await renderWithHtmlToImage(
             mode,
             captureTarget,
             scale,
@@ -2067,7 +1820,6 @@ export function ScreenshotterWidget({
             captureViewport,
             captureDocument,
             captureScroll,
-            renderer,
           );
         }
         const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
@@ -2113,7 +1865,6 @@ export function ScreenshotterWidget({
       presetKey,
       project,
       quality,
-      renderer,
       runIfMounted,
       safeElementPaddingPx,
       scale,
@@ -2430,7 +2181,6 @@ export function ScreenshotterWidget({
   const captureGroupId = `${widgetId}-capture`;
   const outputGroupId = `${widgetId}-output`;
   const advancedBodyId = `${widgetId}-advanced`;
-  const rendererSelectId = `${widgetId}-renderer`;
   const themeGroupId = `${widgetId}-theme`;
   const statusId = `${widgetId}-status`;
   const isUiHidden = hideUiForCapture || isPickingElement;
@@ -2632,34 +2382,6 @@ export function ScreenshotterWidget({
                     </div>
                   </div>
                 ) : null}
-
-                <div className="ssw-setting">
-                  <div>
-                    <p className="ssw-setting-label">Renderer</p>
-                    <p className="ssw-setting-help">Auto picks safest path</p>
-                  </div>
-                  <div>
-                    <select
-                      id={rendererSelectId}
-                      aria-label="Capture renderer"
-                      data-testid="capture-renderer-select"
-                      className="ssw-ui-focus ssw-preset-select"
-                      value={renderer}
-                      onChange={(event) =>
-                        setRenderer(event.currentTarget.value as CaptureRenderer)
-                      }
-                    >
-                      {CAPTURE_RENDERER_OPTIONS.map((value) => (
-                        <option key={value} value={value}>
-                          {rendererLabel(value)}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="ssw-setting-value ssw-setting-value-left">
-                      {rendererLabel(renderer)}
-                    </span>
-                  </div>
-                </div>
 
                 <div className="ssw-setting">
                   <div>
