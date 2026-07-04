@@ -423,7 +423,7 @@ export function DevTools() {
 | --- | --- | --- | --- |
 | `enabled` | `boolean` | `NODE_ENV === "development"` | Enables or disables Screenshotter. |
 | `project` | `string` | `"app"` | Project name included in capture metadata and file names. |
-| `elementPaddingPx` | `number` | `8` | Extra crop padding around element captures. |
+| `elementPaddingPx` | `number` | `0` | Extra output padding around element captures. |
 | `captureSettleMs` | `number` | `700` | Delay before capture so UI can settle. |
 | `defaultMode` | `"element" \| "viewport" \| "fullpage"` | `"element"` | Initial capture mode. |
 | `themeSelectionDefault` | `"current" \| "both"` | `"current"` | Initial theme capture behavior. |
@@ -488,7 +488,7 @@ interface SaveResult {
 - Next.js hydration errors: mount from a client component with `"use client"`.
 - No download starts: allow browser downloads/popups for the site.
 - Fonts or icons differ: verify fonts are loaded before capture and avoid cross-origin font blocking.
-- Element crop has unexpected spacing: reduce `elementPaddingPx`, and prefer selecting a visual container instead of an inline child.
+- Element crop needs breathing room: increase `elementPaddingPx`, and prefer selecting a visual container instead of an inline child.
 - Both-theme capture unavailable: provide a `themeAdapter`.
 
 ## Repository Layout

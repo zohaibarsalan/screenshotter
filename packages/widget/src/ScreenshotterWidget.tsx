@@ -1723,7 +1723,7 @@ async function renderElementCapture(
 export function ScreenshotterWidget({
   enabled,
   project = "app",
-  elementPaddingPx = 8,
+  elementPaddingPx = 0,
   captureSettleMs = 700,
   defaultMode = "element",
   themeSelectionDefault = "current",

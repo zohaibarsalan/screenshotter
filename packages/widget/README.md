@@ -106,7 +106,7 @@ See the repository README for full framework-specific snippets.
 | --- | --- | --- | --- |
 | `enabled` | `boolean` | `NODE_ENV === "development"` | Enables or disables Screenshotter. |
 | `project` | `string` | `"app"` | Project name included in capture metadata and file names. |
-| `elementPaddingPx` | `number` | `8` | Extra crop padding around element captures. |
+| `elementPaddingPx` | `number` | `0` | Extra output padding around element captures. |
 | `captureSettleMs` | `number` | `700` | Delay before capture so UI can settle. |
 | `defaultMode` | `"element" \| "viewport" \| "fullpage"` | `"element"` | Initial capture mode. |
 | `themeSelectionDefault` | `"current" \| "both"` | `"current"` | Initial theme capture behavior. |
