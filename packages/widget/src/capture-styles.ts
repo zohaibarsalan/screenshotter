@@ -1,5 +1,6 @@
 const UNSAFE_COLOR_FUNCTION_PATTERN = /\b(?:oklch|oklab|lch|lab|color)\(/i;
 const COLOR_FUNCTION_NAMES = ["oklch", "oklab", "lch", "lab", "color"] as const;
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const CSS_COLOR_PROPERTIES = [
   "color",
   "background-color",
@@ -33,6 +34,20 @@ const CSS_COLOR_LIST_PROPERTIES = [
   "filter",
   "text-shadow",
 ] as const;
+const SVG_TEXT_TAG_NAMES = new Set(["text", "tspan"]);
+const SVG_TEXT_STYLE_PROPERTIES = [
+  "dominant-baseline",
+  "fill",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "letter-spacing",
+  "stroke",
+  "text-anchor",
+] as const;
+
+type StyleableElement = HTMLElement | SVGElement;
 
 interface RgbColor {
   r: number;
@@ -324,6 +339,34 @@ export function normalizeCssColorForCanvas(
   return output;
 }
 
+function getDocumentView(sourceDocument: Document): Window & typeof globalThis {
+  const sourceView = sourceDocument.defaultView;
+  if (sourceView) return sourceView;
+  if (typeof window !== "undefined") return window;
+  throw new Error("A DOM window is required to sanitize capture styles.");
+}
+
+function isStyleableElement(
+  element: Element,
+  sourceView: Window & typeof globalThis,
+): element is StyleableElement {
+  return (
+    element instanceof sourceView.HTMLElement ||
+    element instanceof sourceView.SVGElement
+  );
+}
+
+function isSvgTextElement(
+  element: Element,
+  sourceView: Window & typeof globalThis,
+): boolean {
+  return (
+    element instanceof sourceView.SVGElement &&
+    element.namespaceURI === SVG_NAMESPACE &&
+    SVG_TEXT_TAG_NAMES.has(element.localName.toLowerCase())
+  );
+}
+
 function getStyleValue(
   computedStyle: CSSStyleDeclaration,
   inlineStyle: CSSStyleDeclaration,
@@ -336,11 +379,36 @@ function getStyleValue(
   ).trim();
 }
 
+function normalizeStyleValueForCanvas(
+  value: string,
+  fallback = "rgb(0, 0, 0)",
+): string {
+  return hasUnsupportedColorFunction(value)
+    ? normalizeCssColorForCanvas(value, fallback)
+    : value;
+}
+
+function inlineSvgTextStylesForCanvas(
+  sourceElement: StyleableElement,
+  clonedElement: StyleableElement,
+  sourceStyle: CSSStyleDeclaration,
+): void {
+  const inlineStyle = sourceElement.style;
+  const clonedStyle = clonedElement.style;
+
+  for (const property of SVG_TEXT_STYLE_PROPERTIES) {
+    const value = getStyleValue(sourceStyle, inlineStyle, property);
+    if (!value) continue;
+
+    clonedStyle.setProperty(property, normalizeStyleValueForCanvas(value));
+  }
+}
+
 export function sanitizeClonedDocumentForCanvas(
   sourceDocument: Document,
   clonedDocument: Document,
 ): void {
-  const sourceView = sourceDocument.defaultView ?? window;
+  const sourceView = getDocumentView(sourceDocument);
   const sourceElements = [
     sourceDocument.documentElement,
     ...Array.from(sourceDocument.documentElement.querySelectorAll("*")),
@@ -351,16 +419,18 @@ export function sanitizeClonedDocumentForCanvas(
   ];
   const count = Math.min(sourceElements.length, clonedElements.length);
 
-  const clonedView = clonedDocument.defaultView ?? window;
+  const clonedView = getDocumentView(clonedDocument);
 
   for (let index = 0; index < count; index += 1) {
     const sourceElement = sourceElements[index];
     const clonedElement = clonedElements[index];
     if (!(sourceElement instanceof sourceView.Element)) continue;
-    if (!(clonedElement instanceof clonedView.HTMLElement)) continue;
+    if (!(clonedElement instanceof clonedView.Element)) continue;
+    if (!isStyleableElement(sourceElement, sourceView)) continue;
+    if (!isStyleableElement(clonedElement, clonedView)) continue;
 
     const sourceStyle = sourceView.getComputedStyle(sourceElement);
-    const inlineStyle = (sourceElement as HTMLElement).style;
+    const inlineStyle = sourceElement.style;
     const clonedStyle = clonedElement.style;
 
     for (const property of CSS_COLOR_PROPERTIES) {
@@ -375,6 +445,10 @@ export function sanitizeClonedDocumentForCanvas(
       if (value && hasUnsupportedColorFunction(value)) {
         clonedStyle.setProperty(property, normalizeCssColorForCanvas(value, "rgb(0, 0, 0)"));
       }
+    }
+
+    if (isSvgTextElement(sourceElement, sourceView)) {
+      inlineSvgTextStylesForCanvas(sourceElement, clonedElement, sourceStyle);
     }
   }
 }
