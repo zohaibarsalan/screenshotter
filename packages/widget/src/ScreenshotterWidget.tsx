@@ -20,7 +20,6 @@ import {
   type ThemeValue,
 } from "./capture.js";
 import {
-  hasUnsupportedColorFunction,
   sanitizeClonedDocumentForCanvas,
 } from "./capture-styles.js";
 
@@ -187,6 +186,8 @@ const VIEWPORT_PRESETS_BY_GROUP: Record<ViewportPresetGroup, readonly ViewportPr
   desktop: VIEWPORT_PRESETS.filter((preset) => preset.group === "desktop"),
 };
 const STATUS_HIDE_DELAY_MS = 2600;
+const GENERIC_CLASS_TOKEN_PATTERN =
+  /^(?:flex|grid|block|inline|contents|relative|absolute|fixed|sticky|static|hidden|visible|invisible|items-.+|justify-.+|content-.+|self-.+|place-.+|gap(?:-[\w:[\]/.%]+)?|space-[xy]-.+|p[trblxy]?-.+|m[trblxy]?-.+|w-.+|h-.+|min-w-.+|min-h-.+|max-w-.+|max-h-.+|rounded(?:-.+)?|border(?:-.+)?|bg-.+|text-.+|font-.+|leading-.+|tracking-.+|shadow(?:-.+)?|overflow-.+|z-.+|opacity-.+|transition(?:-.+)?|duration-.+|ease-.+|shrink(?:-.+)?|grow(?:-.+)?|basis-.+|order-.+|col-.+|row-.+)$/;
 
 function loadHtmlToImage(): Promise<{
   toCanvas: HtmlToImageToCanvas;
@@ -861,32 +862,6 @@ async function waitForStylesheetsReady(
   await Promise.race([Promise.all(loaded), waitForMs(timeoutMs)]);
 }
 
-function targetHasUnsupportedCaptureColors(
-  target: HTMLElement,
-  sourceDocument: Document,
-): boolean {
-  const sourceView = sourceDocument.defaultView ?? window;
-  const elements = [
-    target,
-    ...Array.from(target.querySelectorAll<HTMLElement>("*")),
-  ];
-
-  for (const element of elements) {
-    if (!(element instanceof sourceView.HTMLElement)) continue;
-    if (hasUnsupportedColorFunction(element.getAttribute("style") ?? "")) {
-      return true;
-    }
-    const computed = sourceView.getComputedStyle(element);
-    for (let index = 0; index < computed.length; index += 1) {
-      const property = computed.item(index);
-      if (property && hasUnsupportedColorFunction(computed.getPropertyValue(property))) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName.toLowerCase();
@@ -1026,6 +1001,48 @@ function statusChipLabel(kind: StatusState["kind"]): string {
   return "Ready";
 }
 
+function normalizeLabelText(value: string | null | undefined): string | null {
+  const normalized = value?.replace(/\s+/g, " ").trim();
+  if (!normalized || normalized.length < 2 || normalized.length > 80) return null;
+  return normalized;
+}
+
+function isGenericClassToken(token: string): boolean {
+  return GENERIC_CLASS_TOKEN_PATTERN.test(token);
+}
+
+function getSpecificClassToken(element: HTMLElement): string | null {
+  const className = typeof element.className === "string" ? element.className : "";
+  const tokens = className.trim().split(/\s+/).filter(Boolean);
+  return tokens.find((token) => !isGenericClassToken(token)) ?? null;
+}
+
+function hasOnlyGenericClassTokens(element: HTMLElement): boolean {
+  const className = typeof element.className === "string" ? element.className : "";
+  const tokens = className.trim().split(/\s+/).filter(Boolean);
+  return tokens.length > 0 && tokens.every(isGenericClassToken);
+}
+
+function getHeadingLabel(element: HTMLElement): string | null {
+  if (/^h[1-6]$/i.test(element.tagName)) {
+    return normalizeLabelText(element.textContent);
+  }
+  const labelledBy = element.getAttribute("aria-labelledby");
+  if (labelledBy) {
+    for (const id of labelledBy.split(/\s+/)) {
+      const labelElement = document.getElementById(id);
+      const label = normalizeLabelText(labelElement?.textContent);
+      if (label) return label;
+    }
+  }
+  const heading = element.querySelector<HTMLElement>(
+    'h1,h2,h3,h4,h5,h6,[role="heading"]',
+  );
+  return normalizeLabelText(
+    heading?.getAttribute("aria-label") ?? heading?.textContent,
+  );
+}
+
 function CameraIcon() {
   return (
     <svg className="ssw-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -1087,8 +1104,9 @@ function toSelectorName(element: HTMLElement): string {
     element.getAttribute("data-test") ||
     element.id;
   if (preferred) return preferred;
-  const className =
-    typeof element.className === "string" ? element.className.trim().split(/\s+/)[0] : "";
+  const headingLabel = getHeadingLabel(element);
+  if (headingLabel) return headingLabel;
+  const className = getSpecificClassToken(element);
   if (className) return className;
   return element.tagName.toLowerCase();
 }
@@ -1179,9 +1197,18 @@ function isPointInsideRect(x: number, y: number, rect: DOMRect): boolean {
   return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
 
+function resolveNearestHTMLElement(target: Element | EventTarget | null): HTMLElement | null {
+  if (target instanceof HTMLElement) return target;
+  if (!(target instanceof Element)) return null;
+  for (let current: Element | null = target; current; current = current.parentElement) {
+    if (current instanceof HTMLElement) return current;
+  }
+  return null;
+}
+
 function resolveElementCaptureTarget(rawTarget: HTMLElement): HTMLElement {
   const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
-  const maxDepth = 8;
+  const maxDepth = 24;
   let fallback = rawTarget;
   let fallbackArea = Number.POSITIVE_INFINITY;
 
@@ -1213,6 +1240,7 @@ function resolveElementCaptureTarget(rawTarget: HTMLElement): HTMLElement {
       numberFromPx(computed.borderTopRightRadius) > 0 ||
       numberFromPx(computed.borderBottomLeftRadius) > 0 ||
       numberFromPx(computed.borderBottomRightRadius) > 0;
+    const headingLabel = getHeadingLabel(current);
     const isInline = computed.display.startsWith("inline");
     const isLayoutContainer =
       (computed.display.includes("flex") || computed.display.includes("grid")) &&
@@ -1220,19 +1248,35 @@ function resolveElementCaptureTarget(rawTarget: HTMLElement): HTMLElement {
       !hasBackground &&
       !hasBorder &&
       !hasShadow;
+    const isGenericUtilityWrapper =
+      hasOnlyGenericClassTokens(current) &&
+      !current.id &&
+      !current.getAttribute("aria-label") &&
+      !current.getAttribute("data-testid") &&
+      !current.getAttribute("data-test") &&
+      !headingLabel;
 
-    if (!isInline && area < fallbackArea) {
+    if (!isInline && !isLayoutContainer && !isGenericUtilityWrapper && area < fallbackArea) {
       fallback = current;
       fallbackArea = area;
     }
 
     const hasVisualSurface = hasBackground || hasBorder || hasShadow || hasRadius;
+    if (headingLabel && !isInline && areaRatio <= 0.22) {
+      return current;
+    }
     if (hasVisualSurface && areaRatio <= 0.18) {
       return current;
     }
 
     // Allow compact semantic blocks, but avoid broad row/page wrappers.
-    if (!isLayoutContainer && !isInline && depth <= 2 && areaRatio <= 0.08) {
+    if (
+      !isLayoutContainer &&
+      !isInline &&
+      !isGenericUtilityWrapper &&
+      depth <= 2 &&
+      areaRatio <= 0.08
+    ) {
       return current;
     }
   }
@@ -1661,19 +1705,22 @@ async function renderWithBestRenderer(
   scroll: { x: number; y: number },
   renderer: CaptureRenderer,
 ): Promise<HTMLCanvasElement> {
-  if (
-    renderer === "html2canvas" ||
-    (renderer === "auto" && targetHasUnsupportedCaptureColors(target, sourceDocument))
-  ) {
-    return renderWithHtml2Canvas(
-      mode,
-      target,
-      scale,
-      ignoreElements,
-      viewport,
-      sourceDocument,
-      scroll,
-    );
+  if (renderer !== "html-to-image") {
+    try {
+      return await renderWithHtml2Canvas(
+        mode,
+        target,
+        scale,
+        ignoreElements,
+        viewport,
+        sourceDocument,
+        scroll,
+      );
+    } catch (error) {
+      if (renderer === "html2canvas") {
+        throw error;
+      }
+    }
   }
 
   try {
@@ -1686,9 +1733,64 @@ async function renderWithBestRenderer(
       sourceDocument,
       scroll,
     );
+  } catch (error) {
+    if (renderer !== "html-to-image") {
+      throw error;
+    }
+  }
+
+  return renderWithHtml2Canvas(
+    mode,
+    target,
+    scale,
+    ignoreElements,
+    viewport,
+    sourceDocument,
+    scroll,
+  );
+}
+
+async function renderViewportForElementCapture(
+  scale: number,
+  ignoreElements: (element: Element) => boolean,
+  viewport: CaptureViewport,
+  sourceDocument: Document,
+  scroll: { x: number; y: number },
+  renderer: CaptureRenderer,
+): Promise<HTMLCanvasElement> {
+  return renderWithBestRenderer(
+    "viewport",
+    sourceDocument.documentElement,
+    scale,
+    ignoreElements,
+    viewport,
+    sourceDocument,
+    scroll,
+    renderer,
+  );
+}
+
+async function renderElementDirectFallback(
+  target: HTMLElement,
+  scale: number,
+  ignoreElements: (element: Element) => boolean,
+  viewport: CaptureViewport,
+  sourceDocument: Document,
+  scroll: { x: number; y: number },
+): Promise<HTMLCanvasElement> {
+  try {
+    return await renderWithHtml2Canvas(
+      "element",
+      target,
+      scale,
+      ignoreElements,
+      viewport,
+      sourceDocument,
+      scroll,
+    );
   } catch {
-    return renderWithHtml2Canvas(
-      mode,
+    return renderWithHtmlToImage(
+      "element",
       target,
       scale,
       ignoreElements,
@@ -1709,42 +1811,14 @@ async function renderElementCapture(
   paddingPx: number,
   renderer: CaptureRenderer,
 ): Promise<HTMLCanvasElement> {
-  if (
-    renderer !== "html2canvas" &&
-    (renderer === "html-to-image" ||
-      !targetHasUnsupportedCaptureColors(sourceDocument.documentElement, sourceDocument))
-  ) {
-    try {
-      const viewportCanvas = await renderWithHtmlToImage(
-        "viewport",
-        sourceDocument.documentElement,
-        scale,
-        ignoreElements,
-        viewport,
-        sourceDocument,
-        scroll,
-      );
-      return cropElementFromViewportCanvas(
-        viewportCanvas,
-        target.getBoundingClientRect(),
-        scale,
-        paddingPx,
-      );
-    } catch {
-      // Fall through to the canvas renderer when SVG foreignObject rendering
-      // cannot preserve the current page.
-    }
-  }
-
   try {
-    const viewportCanvas = await renderWithHtml2Canvas(
-      "viewport",
-      sourceDocument.documentElement,
+    const viewportCanvas = await renderViewportForElementCapture(
       scale,
       ignoreElements,
       viewport,
       sourceDocument,
       scroll,
+      renderer,
     );
     return cropElementFromViewportCanvas(
       viewportCanvas,
@@ -1753,8 +1827,7 @@ async function renderElementCapture(
       paddingPx,
     );
   } catch {
-    return renderWithHtml2Canvas(
-      "element",
+    return renderElementDirectFallback(
       target,
       scale,
       ignoreElements,
@@ -2235,11 +2308,8 @@ export function ScreenshotterWidget({
           ? document.elementFromPoint(clientX, clientY)
           : null;
       const rawTarget =
-        pointerTarget instanceof HTMLElement
-          ? pointerTarget
-          : eventTarget instanceof HTMLElement
-            ? eventTarget
-            : null;
+        resolveNearestHTMLElement(pointerTarget) ??
+        resolveNearestHTMLElement(eventTarget);
       if (!rawTarget) {
         setTarget(null);
         return;
@@ -2253,7 +2323,7 @@ export function ScreenshotterWidget({
       clientY: number,
       eventTarget: EventTarget | null,
     ): HTMLElement | null => {
-      const rawTarget = eventTarget instanceof HTMLElement ? eventTarget : null;
+      const rawTarget = resolveNearestHTMLElement(eventTarget);
       let target: HTMLElement | null = null;
       if (highlightedTarget) {
         const rect = highlightedTarget.getBoundingClientRect();

@@ -83,7 +83,7 @@ See the repository README for full framework-specific snippets.
 - Adjustable element padding
 - Optional current-theme or both-theme capture
 - Browser download output
-- Lazy `html-to-image` first with lazy `html2canvas-pro` fallback
+- Lazy canvas-first capture with optional `html-to-image` fallback
 - Tree-shakeable package metadata
 
 ## Exports
@@ -121,7 +121,7 @@ See the repository README for full framework-specific snippets.
 
 - Captures use browser DOM and Canvas features.
 - Element capture renders the viewport context first, then crops the selected element.
-- `html-to-image` is lazy-loaded on capture; `html2canvas-pro` is lazy-loaded for fallback rendering or when Canvas is selected.
+- `html2canvas-pro` is lazy-loaded first in auto mode; `html-to-image` is lazy-loaded for fallback rendering or when selected.
 - No network transport is used by the current package.
 - Published builds omit source maps to keep the installed package smaller.
 - Cross-origin fonts/images, videos, iframes, canvas, and some advanced CSS can still differ from native screenshots.

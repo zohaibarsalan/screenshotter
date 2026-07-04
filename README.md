@@ -12,7 +12,7 @@ NPM package: https://www.npmjs.com/package/@zohaibarsalan/screenshotter
 
 Beta.
 
-The package is usable for local product, UI, and QA workflows. Browser-only screenshot rendering still has known fidelity limits, but the install path, configuration, and current capture flow are ready for beta testing. Capture renderers are lazy-loaded only when a screenshot starts: `html-to-image` runs first for better typography and CSS fidelity, while `html2canvas-pro` is used for fallback, CSS Color 4 preflight, or a forced Canvas render.
+The package is usable for local product, UI, and QA workflows. Browser-only screenshot rendering still has known fidelity limits, but the install path, configuration, and current capture flow are ready for beta testing. Capture renderers are lazy-loaded only when a screenshot starts: `html2canvas-pro` is used first for browser-like layout and styling fidelity, while `html-to-image` remains available as fallback or an explicit override.
 
 ## Features
 
@@ -477,7 +477,7 @@ interface SaveResult {
 
 - No network transport is used by the current package.
 - Captures are created from browser DOM and Canvas features.
-- Capture lazy-loads `html-to-image` first, but routes known CSS Color 4 cases through `html2canvas-pro`; the Advanced panel can force either renderer.
+- Capture lazy-loads `html2canvas-pro` first in auto mode, then falls back to `html-to-image` if needed; the Advanced panel can force either renderer.
 - Published package builds omit source maps to keep tarballs and installs smaller.
 - The package is marked `sideEffects: false` so app bundlers can tree-shake unused exports.
 - Element capture renders the viewport context first, then crops the selected element so layout spacing is preserved better.
