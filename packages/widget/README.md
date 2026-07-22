@@ -30,11 +30,11 @@ bun add @zohaibarsalan/screenshotter
 
 ## Package Size
 
-Current `0.2.0` npm package, checked with `npm pack --dry-run`:
+Current `0.2.1` npm package, checked with `pnpm --filter @zohaibarsalan/screenshotter pack --dry-run`:
 
-- Packed tarball: about `18 KB`
-- Unpacked install: about `76 KB`
-- Largest built file: about `64 KB`
+- Packed tarball: about `25 KB`
+- Unpacked install: about `102 KB`
+- Largest built file: about `73 KB`
 - Bundled dependencies: none
 
 ## Quick Start
@@ -119,7 +119,8 @@ See the repository README for full framework-specific snippets.
 
 - Captures use browser DOM and Canvas features.
 - Capture lazy-loads `html-to-image` when a screenshot starts.
-- Element capture renders the selected DOM element directly, then applies optional output padding.
+- Element capture renders a prepared clone of the selected DOM element, then applies optional output padding.
+- Capture sanitization normalizes unsupported modern color functions and inlines SVG text styles where browser canvas rendering needs it.
 - No network transport is used by the current package.
 - Published builds omit source maps to keep the installed package smaller.
 - Cross-origin fonts/images, videos, iframes, canvas, and some advanced CSS can still differ from native screenshots.

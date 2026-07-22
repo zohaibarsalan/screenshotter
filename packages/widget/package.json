@@ -1,6 +1,6 @@
 {
   "name": "@zohaibarsalan/screenshotter",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "React package for in-app screenshot capture with direct browser downloads.",
   "keywords": [
     "screenshot",
