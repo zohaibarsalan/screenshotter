@@ -10,9 +10,9 @@ NPM package: https://www.npmjs.com/package/@zohaibarsalan/screenshotter
 
 ## Status
 
-Beta.
+Not working.
 
-The package is usable for local product, UI, and QA workflows. Browser-only rendering still has known fidelity limits, but the install path, configuration, and current capture flow are ready for beta testing.
+This package is under repair and is not ready for beta use, production use, or a fresh npm publish. The current browser-only capture path still has known failures around element selection, SVG and `foreignObject` rendering, modern CSS color functions, icons, emoji, and visual fidelity. Treat this package as active development until those paths are fixed and verified.
 
 ## Install
 
